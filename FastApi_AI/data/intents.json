@@ -1,0 +1,13 @@
+[
+  { "text": "Кофе хаана байна?", "intent": "product_location" },
+  { "text": "Талх хаана байдаг вэ?", "intent": "product_location" },
+  { "text": "Sugar location?", "intent": "product_location" },
+
+  { "text": "Өнөөдөр юу идэх вэ?", "intent": "recommendation" },
+  { "text": "Ямар хоол санал болгох вэ?", "intent": "recommendation" },
+  { "text": "Recommend a breakfast recipe", "intent": "recommendation" },
+
+  { "text": "Nescafe үнээ?", "intent": "price_sale" },
+  { "text": "Ямар бараа хямдралтай вэ?", "intent": "price_sale" },
+  { "text": "Any sale price today?", "intent": "price_sale" }
+]

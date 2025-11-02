@@ -1,0 +1,16 @@
+[
+  { "text": "커피 어디에 있어?", "intent": "product_location" },
+  { "text": "설탕은 어디에 있나요?", "intent": "product_location" },
+  { "text": "우유 위치 알려줘", "intent": "product_location" },
+  { "text": "빵 코너는 어디죠?", "intent": "product_location" },
+
+  { "text": "오늘 뭐 먹지?", "intent": "recommendation" },
+  { "text": "아침 식사 추천해줘", "intent": "recommendation" },
+  { "text": "간단한 레시피 추천", "intent": "recommendation" },
+  { "text": "라면 말고 뭐가 좋을까?", "intent": "recommendation" },
+
+  { "text": "네스카페 가격 알려줘", "intent": "price_sale" },
+  { "text": "지금 할인하는 상품 있어?", "intent": "price_sale" },
+  { "text": "세일 가격 알려줘", "intent": "price_sale" },
+  { "text": "어떤 상품이 할인 중이야?", "intent": "price_sale" }
+]

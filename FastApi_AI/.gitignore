@@ -1,0 +1,54 @@
+####################################
+# Python / FastAPI .gitignore
+####################################
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment files
+.env
+.env.sample
+
+.env.*
+!.env.sample
+
+# Testing / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# Databases / caches (keep sample data in repo separately if needed)
+store_nav.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs / temp
+logs/
+*.log
+.cache/
+
+
+
