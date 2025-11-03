@@ -1,0 +1,124 @@
+import React, { useEffect, useRef, useState } from "react";
+
+export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, onSaveEdit, onDelete, onCancel, onPickHeading }) {
+  const [pos, setPos] = useState({ left: 16, top: 16 });
+  const [size, setSize] = useState({ width: 360, height: 520 });
+  const [dragging, setDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (dragging) {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        let left = e.clientX - dragOffset.current.x;
+        let top = e.clientY - dragOffset.current.y;
+        left = Math.max(0, Math.min(vw - size.width, left));
+        top = Math.max(0, Math.min(vh - size.height, top));
+        setPos({ left, top });
+      } else if (resizing) {
+        const minW = 260, minH = 280, maxW = Math.min(window.innerWidth - pos.left - 8, 800), maxH = Math.min(window.innerHeight - pos.top - 8, 900);
+        let newW = resizeStart.current.w + (e.clientX - resizeStart.current.x);
+        let newH = resizeStart.current.h + (e.clientY - resizeStart.current.y);
+        newW = Math.max(minW, Math.min(maxW, newW));
+        newH = Math.max(minH, Math.min(maxH, newH));
+        setSize({ width: newW, height: newH });
+      }
+    };
+    const onUp = () => { setDragging(false); setResizing(false); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [dragging, resizing, size.width, size.height, pos.left, pos.top]);
+
+  return (
+    <div
+      onMouseDown={(e)=>e.stopPropagation()}
+      onClick={(e)=>e.stopPropagation()}
+      style={{
+        position: "fixed",
+        left: pos.left,
+        top: pos.top,
+        zIndex: 1000,
+        background: "rgba(10,10,14,0.92)",
+        border: "1px solid #2a2a2e",
+        borderRadius: 10,
+        width: size.width,
+        height: size.height,
+        maxWidth: "100vw",
+        maxHeight: "100vh",
+        overflow: "hidden",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        onMouseDown={(e)=>{ setDragging(true); dragOffset.current = { x: e.clientX - pos.left, y: e.clientY - pos.top }; }}
+        style={{ cursor: 'move', padding: '8px 10px', borderBottom: '1px solid #2a2a2e', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+      >
+        <div style={{ fontWeight: 700 }}>{editMode ? 'Edit Item' : 'Create Item'}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onSaveNew} disabled={editMode} style={{ padding: '4px 8px', opacity: editMode ? 0.5 : 1 }}>Save</button>
+          {editMode && <button onClick={onSaveEdit} style={{ padding: '4px 8px' }}>Update</button>}
+          <button onClick={onCancel} style={{ padding: '4px 8px' }}>Close</button>
+        </div>
+      </div>
+      <div style={{ position: 'relative', flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        <div style={{ padding: 12, boxSizing: 'border-box', width: '100%' }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>{editMode ? "Edit Item" : "Create Item"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(80px, 110px) 1fr", gap: 6, alignItems: "center" }}>
+        <label>Name</label>
+        <input value={newItem.name} onChange={(e)=>setNewItem((p)=>({...p, name: e.target.value}))} style={{ width: "100%", background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Type</label>
+        <select value={newItem.type} onChange={(e)=>setNewItem((p)=>({...p, type: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}>
+          <option value="product">product</option>
+          <option value="product_zone">product_zone</option>
+          <option value="slam_start">slam_start</option>
+        </select>
+        {newItem.type === 'slam_start' && (
+          <>
+            <label>Heading°</label>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="number" step="0.1" value={newItem.heading_deg ?? ''} onChange={(e)=>setNewItem((p)=>({...p, heading_deg: e.target.value}))} style={{ flex: '0 0 90px', background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+              <input type="range" min="0" max="360" step="1" value={Number(newItem.heading_deg || 0)} onChange={(e)=>setNewItem((p)=>({...p, heading_deg: Number(e.target.value)}))} style={{ flex: 1, minWidth: 0 }} />
+              <button onClick={onPickHeading} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>Set From Map</button>
+            </div>
+          </>
+        )}
+        <label>X</label>
+        <input type="number" value={newItem.x ?? ""} onChange={(e)=>setNewItem((p)=>({...p, x: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Y</label>
+        <input type="number" value={newItem.y ?? ""} onChange={(e)=>setNewItem((p)=>({...p, y: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Z</label>
+        <input type="number" step="0.01" value={newItem.z} onChange={(e)=>setNewItem((p)=>({...p, z: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Image URL</label>
+        <input value={newItem.image_url} onChange={(e)=>setNewItem((p)=>({...p, image_url: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Price</label>
+        <input type="number" step="0.01" value={newItem.price} onChange={(e)=>setNewItem((p)=>({...p, price: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Sale %</label>
+        <input type="number" value={newItem.sale_percent} onChange={(e)=>setNewItem((p)=>({...p, sale_percent: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Note</label>
+        <input value={newItem.note} onChange={(e)=>setNewItem((p)=>({...p, note: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Desc</label>
+        <textarea rows={2} value={newItem.description} onChange={(e)=>setNewItem((p)=>({...p, description: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+          </div>
+          {/* Actions moved to header: Save / Update / Close */}
+          <div style={{ marginTop: 6, fontSize: 12, color: "#bbb" }}>
+            {editMode ? "Tip: Click an item to edit." : "Tip: Click map to set position (snaps to nearby points)."}
+          </div>
+        </div>
+      </div>
+      {/* Resize handle */}
+      <div
+        onMouseDown={(e)=>{ e.preventDefault(); e.stopPropagation(); setResizing(true); resizeStart.current = { x: e.clientX, y: e.clientY, w: size.width, h: size.height }; }}
+        style={{ position: 'absolute', right: 6, bottom: 6, width: 16, height: 16, cursor: 'nwse-resize', opacity: 0.8 }}
+        title="Resize"
+      >
+        <svg width="16" height="16"><path d="M0 16 L16 0" stroke="#888" /></svg>
+      </div>
+    </div>
+  );
+}

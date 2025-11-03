@@ -24,6 +24,7 @@ class Item(Base):
     price = Column(DECIMAL(10,2), nullable=True)        # 12900.00 ₩ гэх мэт
     sale_percent = Column(Integer, nullable=True)       # 30 гэж хадгалаад "30%" гэж үзэж болно
     description = Column(Text, nullable=True)           # "Rich aroma instant coffee ..."
+    heading_deg = Column(DECIMAL(10,4), nullable=True)  # optional: SLAM start heading in degrees
 
     created_at = Column(
         TIMESTAMP,
@@ -76,6 +77,26 @@ class Segment(Base):
     created_at = Column(
         TIMESTAMP,
         server_default=func.current_timestamp()
+    )
+
+
+class SlamStart(Base):
+    __tablename__ = "slam_start"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    x = Column(DECIMAL(10,4), nullable=False)
+    y = Column(DECIMAL(10,4), nullable=False)
+    z = Column(DECIMAL(10,4), nullable=True)
+    heading_deg = Column(DECIMAL(10,4), nullable=True)
+
+    created_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp()
+    )
+    updated_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp()
     )
     updated_at = Column(
         TIMESTAMP,

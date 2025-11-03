@@ -1,5 +1,5 @@
 # routers/segments.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -113,3 +113,13 @@ async def create_free_segment(seg: SegmentFreeCreate, db: AsyncSession = Depends
         "to_item_id": new_seg.to_item_id,
         "polyline": seg.polyline
     }
+
+
+@router.delete("/{segment_id:int}", status_code=204)
+async def delete_segment(segment_id: int, db: AsyncSession = Depends(get_db)):
+    seg = await db.get(Segment, segment_id)
+    if not seg:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    await db.delete(seg)
+    await db.commit()
+    return Response(status_code=204)

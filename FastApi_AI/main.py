@@ -6,6 +6,7 @@ from sqlalchemy import text
 from config import settings
 from database import engine, Base
 from routers import items, paths, route, segments
+from routers import slam
 from routers import chatbot
 
 app = FastAPI(
@@ -27,6 +28,7 @@ app.include_router(items.router)
 app.include_router(paths.router)
 app.include_router(route.router)
 app.include_router(segments.router)
+app.include_router(slam.router)
 app.include_router(chatbot.router)
 
 # Эхний удаа dev орчинд table-уудыг автоматаар үүсгэхэд ашиглаж болно
@@ -46,14 +48,34 @@ async def on_startup():
         init_intent_model()
     except Exception:
         pass
-        # lightweight SQLite migration: ensure 'z' column exists on items
-        try:
-            res = await conn.execute(text("PRAGMA table_info('items')"))
+    # lightweight SQLite migration: ensure 'z' and 'heading_deg' columns exist on items
+    try:
+        async with engine.begin() as conn2:
+            res = await conn2.execute(text("PRAGMA table_info('items')"))
             cols = [row[1] for row in res]
             if 'z' not in cols:
-                await conn.execute(text("ALTER TABLE items ADD COLUMN z REAL"))
-        except Exception:
-            pass
+                await conn2.execute(text("ALTER TABLE items ADD COLUMN z REAL"))
+            if 'heading_deg' not in cols:
+                await conn2.execute(text("ALTER TABLE items ADD COLUMN heading_deg REAL"))
+    except Exception:
+        pass
+    # one-time migrate existing items.type='slam_start' into slam_start table
+    try:
+        from sqlalchemy import select, delete
+        from models import Item, SlamStart
+        async with engine.begin() as conn3:
+            # fetch slam items
+            result = await conn3.execute(select(Item).where(Item.type == 'slam_start'))
+            rows = result.scalars().all()
+            for it in rows:
+                await conn3.execute(
+                    text("INSERT INTO slam_start (x,y,z,heading_deg) VALUES (:x,:y,:z,:h)"),
+                    { 'x': float(it.x), 'y': float(it.y), 'z': float(it.z) if it.z is not None else None, 'h': float(it.heading_deg) if it.heading_deg is not None else None }
+                )
+            if rows:
+                await conn3.execute(delete(Item).where(Item.type == 'slam_start'))
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     uvicorn.run("main:app", reload=True)

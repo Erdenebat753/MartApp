@@ -1,11 +1,20 @@
 # schemas.py
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+try:
+    # Pydantic v2
+    from pydantic.alias_generators import to_camel
+    from pydantic import AliasChoices, ConfigDict
+    HAS_V2 = True
+except Exception:
+    HAS_V2 = False
 from typing import Optional, List
 
 #
 # ITEM
 #
 class ItemBase(BaseModel):
+    if HAS_V2:
+        model_config = ConfigDict(extra='ignore')
     name: str
     type: str         # "product_zone" / "entrance" / "checkout"
     x: float
@@ -16,6 +25,12 @@ class ItemBase(BaseModel):
     price: Optional[float] = None          # new
     sale_percent: Optional[int] = None     # new
     description: Optional[str] = None 
+    # Accept heading_deg or heading or headingDeg from clients
+    if HAS_V2:
+        heading_deg: Optional[float] = Field(default=None, validation_alias=AliasChoices('heading_deg','heading','headingDeg'))
+    else:
+        heading_deg: Optional[float] = None
+    heading_deg: Optional[float] = None    # new: for SLAM start type
 
 class ItemCreate(ItemBase):
     pass
@@ -119,3 +134,24 @@ class RoutePlanRequest(BaseModel):
 class RoutePlanResponse(BaseModel):
     ordered_ids: List[int]
     polyline: List[RoutePoint]
+#
+# SLAM START (separate minimal schema)
+#
+class SlamStartCreate(BaseModel):
+    x: float
+    y: float
+    z: Optional[float] = None
+    # Accept heading variants too
+    if HAS_V2:
+        heading_deg: Optional[float] = Field(default=None, validation_alias=AliasChoices('heading_deg','heading','headingDeg'))
+    else:
+        heading_deg: Optional[float] = None
+
+class SlamStartRead(BaseModel):
+    id: int
+    x: float
+    y: float
+    z: Optional[float] = None
+    heading_deg: Optional[float] = None
+    class Config:
+        from_attributes = True

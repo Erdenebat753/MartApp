@@ -141,6 +141,27 @@ def _build_graph(polylines: List[List[Tuple[float,float]]]):
             prev = cur
     return graph, coords_by_key
 
+def _connect_nearby_nodes(graph: Dict[str, Dict[str, float]], coords_by_key: Dict[str, Tuple[float,float]], eps: float = 6.0):
+    """
+    Heuristic: endpoints that are extremely close (within eps pixels) should be
+    considered connected. This helps when drawn segments didn't snap perfectly.
+    """
+    keys = list(coords_by_key.keys())
+    for i in range(len(keys)):
+        ki = keys[i]
+        xi, yi = coords_by_key[ki]
+        for j in range(i+1, len(keys)):
+            kj = keys[j]
+            xj, yj = coords_by_key[kj]
+            d = math.hypot(xi - xj, yi - yj)
+            if d <= eps:
+                graph.setdefault(ki, {})
+                graph.setdefault(kj, {})
+                w = max(d, 1e-6)
+                # undirected minimal weight
+                graph[ki][kj] = min(graph[ki].get(kj, float('inf')), w)
+                graph[kj][ki] = min(graph[kj].get(ki, float('inf')), w)
+
 def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float], graph, coords_by_key, polylines):
     # snap endpoints
     def best_projection(p):
@@ -245,6 +266,8 @@ async def get_route_by_coords(req: RouteByCoordsRequest, db: AsyncSession = Depe
             RoutePoint(x=req.end.x, y=req.end.y),
         ])
     graph, coords_by_key = _build_graph(polylines)
+    # Connect very-near nodes to bridge tiny gaps between drawn segments
+    _connect_nearby_nodes(graph, coords_by_key, eps=8.0)
     poly = _shortest_polyline_between((req.start.x, req.start.y), (req.end.x, req.end.y), graph, coords_by_key, polylines)
     return RoutePolylineResponse(polyline=[RoutePoint(x=p[0], y=p[1]) for p in poly])
 

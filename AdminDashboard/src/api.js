@@ -23,6 +23,15 @@ export async function createFreeSegment(polyline) {
   });
 }
 
+export async function deleteSegment(id) {
+  const res = await fetch(`${API_BASE}/api/segments/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt}`);
+  }
+  return true;
+}
+
 export async function routeByCoords(start, end) {
   return jsonFetch(`${API_BASE}/api/route/coords`, {
     method: "POST",
@@ -48,6 +57,18 @@ export async function createItem(item) {
   });
 }
 
+export async function createSlamStart(data) {
+  return jsonFetch(`${API_BASE}/api/slam`, {
+    method: "POST",
+    body: JSON.stringify({
+      x: Number(data.x),
+      y: Number(data.y),
+      z: data.z === "" || data.z == null ? null : Number(data.z),
+      heading_deg: data.heading_deg === "" || data.heading_deg == null ? null : Number(data.heading_deg),
+    }),
+  });
+}
+
 export async function updateItem(id, item) {
   return jsonFetch(`${API_BASE}/api/items/${id}`, {
     method: "PUT",
@@ -62,4 +83,8 @@ export async function deleteItem(id) {
     throw new Error(`HTTP ${res.status}: ${txt}`);
   }
   return true;
+}
+
+export async function getSlamStart() {
+  return jsonFetch(`${API_BASE}/api/slam`);
 }

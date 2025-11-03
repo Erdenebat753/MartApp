@@ -19,6 +19,8 @@ async def list_items(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=ItemRead)
 async def create_item(item: ItemCreate, db: AsyncSession = Depends(get_db)):
+    if item.type == 'slam_start':
+        raise HTTPException(status_code=400, detail="Use /api/slam to create SLAM start")
     new_item = Item(
         name=item.name,
         type=item.type,
@@ -29,7 +31,8 @@ async def create_item(item: ItemCreate, db: AsyncSession = Depends(get_db)):
         note=item.note,
         price=item.price,
         sale_percent=item.sale_percent,
-        description=item.description
+        description=item.description,
+        heading_deg=item.heading_deg
     )
     db.add(new_item)
     await db.commit()
@@ -41,6 +44,8 @@ async def update_item(item_id: int, item: ItemCreate, db: AsyncSession = Depends
     obj = await db.get(Item, item_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.type == 'slam_start' and obj.type != 'slam_start':
+        raise HTTPException(status_code=400, detail="Use /api/slam to update SLAM start")
     obj.name = item.name
     obj.type = item.type
     obj.x = item.x
@@ -51,6 +56,7 @@ async def update_item(item_id: int, item: ItemCreate, db: AsyncSession = Depends
     obj.price = item.price
     obj.sale_percent = item.sale_percent
     obj.description = item.description
+    obj.heading_deg = item.heading_deg
     await db.commit()
     await db.refresh(obj)
     return obj

@@ -1,5 +1,5 @@
 import React from "react";
-import MapView from "./MapView";
+import AdminMapPage from "./pages/AdminMapPage";
 
 function App() {
   return (
@@ -7,7 +7,7 @@ function App() {
       <h2 style={{ fontFamily: "sans-serif", fontSize: 16, color: "#fff" }}>
         Store Navigation Demo
       </h2>
-      <MapView />
+      <AdminMapPage />
     </div>
   );
 }

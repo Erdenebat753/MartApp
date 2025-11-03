@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { View, Image, GestureResponderEvent, Text, Pressable } from "react-native";
+import Svg, { Polyline as SvgPolyline, Circle as SvgCircle, Polygon as SvgPolygon } from 'react-native-svg';
 
 export type Point = { x: number; y: number };
 
@@ -13,6 +14,8 @@ type Props = {
   user?: Point | null;
   onLongPress?: (p: Point) => void;
   headingDeg?: number; // харагдах байдлын хувьд (одоогоор эргэлт OFF)
+  headingInvert?: boolean; // true бол эргэлтийн чиглэлийг урвуулна
+  debug?: boolean;
 };
 
 export default function Map2D({
@@ -25,112 +28,97 @@ export default function Map2D({
   user,
   onLongPress,
   headingDeg = 0,
+  headingInvert = false,
+  debug = false,
 }: Props) {
-  const scale = width / mapWidthPx;
+  // Fit map entirely inside given width/height while preserving aspect
+  const scale = Math.min(width / mapWidthPx, height / mapHeightPx);
+  const dispWidth = Math.round(mapWidthPx * scale);
   const dispHeight = Math.round(mapHeightPx * scale);
+  const offX = Math.floor((width - dispWidth) / 2);
+  const offY = Math.floor((height - dispHeight) / 2);
 
-  const segments = useMemo(() => {
-    const out: { left: number; top: number; w: number; angle: number }[] = [];
-    for (let i = 0; i + 1 < polyline.length; i++) {
-      const a = polyline[i];
-      const b = polyline[i + 1];
-      const ax = a.x * scale;
-      const ay = a.y * scale;
-      const bx = b.x * scale;
-      const by = b.y * scale;
-      const dx = bx - ax;
-      const dy = by - ay;
-      const len = Math.hypot(dx, dy);
-      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-      out.push({ left: ax, top: ay, w: len, angle });
-    }
-    return out;
-  }, [polyline, scale]);
+  const routePoints = useMemo(() => {
+    if (!polyline || polyline.length < 2) return '';
+    return polyline.map(p => `${offX + p.x * scale},${offY + p.y * scale}`).join(' ');
+  }, [polyline, scale, offX, offY]);
+
+  if (debug) {
+    console.log('[Map2D] dims', { cont:{width,height}, map:{mapWidthPx,mapHeightPx}, disp:{dispWidth,dispHeight}, scale, offX, offY, user, headingDeg, polyLen: polyline?.length || 0 });
+  }
 
   const onLongPressWrap = (e: GestureResponderEvent) => {
     if (!onLongPress) return;
     const { locationX, locationY } = e.nativeEvent;
-    // NOTE: Одоогоор эргэлтгүй тул шууд хөрвүүлж байна
-    const px = locationX / scale;
-    const py = locationY / scale;
+    // convert screen point back to map coords considering offset/scale
+    const px = (locationX - offX) / scale;
+    const py = (locationY - offY) / scale;
     onLongPress({ x: px, y: py });
   };
 
   return (
     <Pressable
       onLongPress={onLongPressWrap}
-      style={{ width, height, backgroundColor: "#111", overflow: "hidden" }}
+      style={{ width, height, backgroundColor: "#111", overflow: "hidden", position: 'relative' }}
     >
       {backgroundSource ? (
         <Image
           source={backgroundSource}
-          style={{ width, height: dispHeight }}
+          style={{ width: dispWidth, height: dispHeight, position: 'absolute', left: offX, top: offY }}
           resizeMode="stretch"
         />
       ) : (
-        <View style={{ width, height: dispHeight, backgroundColor: "#222" }} />
+        <View style={{ position: 'absolute', left: offX, top: offY, width: dispWidth, height: dispHeight, backgroundColor: "#222" }} />
       )}
 
       {/* Polyline segments (улаан) */}
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width,
-          height: dispHeight,
-        }}
-        pointerEvents="none"
-      >
-        {segments.map((s, idx) => (
-          <View
-            key={idx}
-            style={{
-              position: "absolute",
-              left: s.left,
-              top: s.top,
-              width: s.w,
-              height: 3,
-              backgroundColor: "red",
-              transform: [{ rotate: `${s.angle}deg` }],
-              borderRadius: 2,
-            }}
-          />
-        ))}
-
-        {/* User marker (цэнхэр) */}
-        {user && (
-          <View
-            style={{
-              position: "absolute",
-              left: user.x * scale - 4,
-              top: user.y * scale - 4,
-              width: 8,
-              height: 8,
-              borderRadius: 8,
-              backgroundColor: "#3fa9f5",
-              borderWidth: 1,
-              borderColor: "#083a66",
-            }}
-          />
+      <Svg width={width} height={height} style={{ position: 'absolute', left: 0, top: 0 }} pointerEvents="none">
+        {polyline && polyline.length >= 2 && (
+          <SvgPolyline points={routePoints} fill="none" stroke="red" strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
         )}
-      </View>
+        {user && (
+          <>
+            {/* User dot */}
+            <SvgCircle cx={offX + user.x * scale} cy={offY + user.y * scale} r={4} stroke="#083a66" strokeWidth={1} fill="#3fa9f5" />
+            {/* Heading arrow */}
+            {(() => {
+              // simple triangle pointing in headingDeg direction
+              const cx = offX + user.x * scale;
+              const cy = offY + user.y * scale;
+              const length = 24; // px on screen (bigger for visibility)
+              const halfBase = 6; // triangle base half-width
+              const angleDeg = headingInvert ? -headingDeg : headingDeg;
+              const rad = (angleDeg - 90) * Math.PI / 180; // rotate so 0deg points up
+              const dirX = Math.cos(rad);
+              const dirY = Math.sin(rad);
+              // tip point
+              const x1 = cx + dirX * length;
+              const y1 = cy + dirY * length;
+              // base center slightly behind center dot
+              const bx = cx - dirX * 4;
+              const by = cy - dirY * 4;
+              // perpendicular for base corners
+              const px = -dirY;
+              const py = dirX;
+              const x2 = bx + px * halfBase;
+              const y2 = by + py * halfBase;
+              const x3 = bx - px * halfBase;
+              const y3 = by - py * halfBase;
+              const points = `${x1},${y1} ${x2},${y2} ${x3},${y3}`;
+              return <SvgPolygon points={points} fill="#3fa9f5" opacity={0.9} />;
+            })()}
+          </>
+        )}
+      </Svg>
 
       {/* Heading overlay (харах лэйбл) */}
-      <View
-        style={{
-          position: "absolute",
-          right: 8,
-          top: 8,
-          backgroundColor: "#00000088",
-          paddingHorizontal: 8,
-          paddingVertical: 4,
-          borderRadius: 6,
-        }}
-      >
-        <Text style={{ color: "#fff", fontSize: 12 }}>
-          Heading: {headingDeg.toFixed(0)}°
-        </Text>
+      <View style={{ position: "absolute", right: 8, top: 8, backgroundColor: "#00000088", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+        <Text style={{ color: "#fff", fontSize: 12 }}>Heading: {headingDeg.toFixed(0)}°</Text>
+        {debug && (
+          <Text style={{ color: "#ccc", fontSize: 10, marginTop: 2 }}>
+            s:{scale.toFixed(3)} off:{offX},{offY} poly:{polyline?.length||0}
+          </Text>
+        )}
       </View>
     </Pressable>
   );
