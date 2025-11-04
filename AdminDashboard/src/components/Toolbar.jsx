@@ -21,6 +21,8 @@ export default function Toolbar({
   selectedSegId,
   onDeleteSelectedSegment,
   onUseSlamStart,
+  showGrid, setShowGrid,
+  showLabels, setShowLabels,
 }) {
   return (
     <div style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", background: "#18181b", border: "1px solid #2a2a2e", borderRadius: 10, padding: 8, boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }}>
@@ -41,6 +43,12 @@ export default function Toolbar({
       <button onClick={onReloadItems} style={{ padding: "6px 10px", background: "#27272a", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>Reload Items</button>
       <button onClick={onReloadSlam} style={{ padding: "6px 10px", background: "#27272a", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>Reload SLAM</button>
       <span style={{ width: 1, height: 20, background: "#2a2a2e" }} />
+      <button onClick={() => setShowGrid(v=>!v)} style={{ padding: "6px 10px", background: showGrid ? "#86efac" : "#27272a", color: showGrid ? "#052e16" : "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>
+        {showGrid ? "Grid: ON" : "Grid: OFF"}
+      </button>
+      <button onClick={() => setShowLabels(v=>!v)} style={{ padding: "6px 10px", background: showLabels ? "#fde68a" : "#27272a", color: showLabels ? "#3b2902" : "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>
+        {showLabels ? "Labels: ON" : "Labels: OFF"}
+      </button>
       <button onClick={()=>{ const nv = !createMode; setCreateMode(nv); if(nv){ setDrawMode(false); setRouteMode(false); setEditMode(false); setSelectSegMode(false);} }} style={{ padding: "6px 10px", background: createMode ? "#a78bfa" : "#27272a", color: createMode ? "#1c1433" : "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>
         {createMode ? "Create Item: ON" : "Create Item: OFF"}
       </button>

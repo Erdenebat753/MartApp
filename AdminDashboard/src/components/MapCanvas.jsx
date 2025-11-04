@@ -4,6 +4,7 @@ import { DISPLAY_WIDTH, DISPLAY_HEIGHT, SCALE, MAP_WIDTH_PX, MAP_HEIGHT_PX } fro
 export default function MapCanvas({
   containerRef,
   onMapClick,
+  onMapMove,
   drawMode, routeMode, selectSegMode,
   segments, routePolyline, drawPoints,
   items, newItemPos, selectedItem,
@@ -12,11 +13,20 @@ export default function MapCanvas({
   headingPickMode,
   headingArrow,
   slamStart,
+  showGrid = false,
+  showLabels = false,
 }) {
   return (
     <div
       ref={containerRef}
       onClick={onMapClick}
+      onMouseMove={(e) => {
+        if (!containerRef?.current || !onMapMove) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const dx = e.clientX - rect.left;
+        const dy = e.clientY - rect.top;
+        onMapMove({ x: dx / SCALE, y: dy / SCALE });
+      }}
       style={{
         position: "relative",
         width: DISPLAY_WIDTH,
@@ -29,6 +39,23 @@ export default function MapCanvas({
       }}
     >
       <img src="/Frame1.png" alt="store map" style={{ width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT, objectFit: "fill", position: "absolute", left: 0, top: 0, zIndex: 1 }} />
+
+      {/* Grid overlay */}
+      {showGrid && (
+        <svg width={DISPLAY_WIDTH} height={DISPLAY_HEIGHT} style={{ position: "absolute", left: 0, top: 0, zIndex: 1.5, pointerEvents: "none" }}>
+          {(() => {
+            const step = 50 * SCALE; // grid every 50 map px
+            const lines = [];
+            for (let x = 0; x <= DISPLAY_WIDTH; x += step) {
+              lines.push(<line key={`vx${x}`} x1={x} y1={0} x2={x} y2={DISPLAY_HEIGHT} stroke="#2a2a2e" strokeWidth={1} />);
+            }
+            for (let y = 0; y <= DISPLAY_HEIGHT; y += step) {
+              lines.push(<line key={`hz${y}`} x1={0} y1={y} x2={DISPLAY_WIDTH} y2={y} stroke="#2a2a2e" strokeWidth={1} />);
+            }
+            return lines;
+          })()}
+        </svg>
+      )}
 
       {/* Existing segments (green) */}
       <svg width={DISPLAY_WIDTH} height={DISPLAY_HEIGHT} style={{ position: "absolute", left: 0, top: 0, zIndex: 2, pointerEvents: "none" }}>
@@ -105,7 +132,12 @@ export default function MapCanvas({
       {/* Items overlay (blue markers) */}
       <svg width={DISPLAY_WIDTH} height={DISPLAY_HEIGHT} style={{ position: "absolute", left: 0, top: 0, zIndex: 8, pointerEvents: "none" }}>
         {items.map((it)=> (
-          <circle key={it.id} cx={it.x * SCALE} cy={it.y * SCALE} r={4} fill="#4da3ff" stroke="#00224d" strokeWidth={1} />
+          <g key={it.id}>
+            <circle cx={it.x * SCALE} cy={it.y * SCALE} r={4} fill="#4da3ff" stroke="#00224d" strokeWidth={1} />
+            {showLabels && (
+              <text x={it.x * SCALE + 6} y={it.y * SCALE - 6} fill="#e5e7eb" fontSize={11} style={{ userSelect: 'none' }}>{it.name}</text>
+            )}
+          </g>
         ))}
       </svg>
 

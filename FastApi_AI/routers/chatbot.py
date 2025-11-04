@@ -181,7 +181,14 @@ async def _call_gpt(intent: str, user_text: str, device: Optional[Dict[str, floa
             "reply": "LLM을 사용할 수 없습니다. OPENAI_API_KEY를 설정해 주세요.",
         }
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    try:
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    except Exception:
+        return {
+            "intent": intent,
+            "item_ids": [],
+            "reply": "LLM 클라이언트 초기화 오류(httpx/프록시). 간단 매칭으로 대체합니다.",
+        }
 
     prm = _load_prompts()
     sys = prm.get("system")

@@ -85,6 +85,9 @@ export default function AdminMapPage() {
   const [selectedSegId, setSelectedSegId] = useState(null);
   const [headingPickMode, setHeadingPickMode] = useState(false);
   const [slamStart, setSlamStart] = useState(null);
+  const [showGrid, setShowGrid] = useState(false);
+  const [showLabels, setShowLabels] = useState(false);
+  const [mousePos, setMousePos] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -512,11 +515,16 @@ export default function AdminMapPage() {
         setShowChat={setShowChat}
         selectedSegId={selectedSegId}
         onDeleteSelectedSegment={handleDeleteSelectedSegment}
+        showGrid={showGrid}
+        setShowGrid={setShowGrid}
+        showLabels={showLabels}
+        setShowLabels={setShowLabels}
       />
 
       <MapCanvas
         containerRef={containerRef}
         onMapClick={handleMapClick}
+        onMapMove={(p) => setMousePos(p)}
         drawMode={drawMode}
         routeMode={routeMode}
         selectSegMode={selectSegMode}
@@ -548,6 +556,8 @@ export default function AdminMapPage() {
           return null;
         })()}
         slamStart={slamStart}
+        showGrid={showGrid}
+        showLabels={showLabels}
         toDisplay={toDisplay}
         polylineStr={polylineStr}
       />
@@ -588,10 +598,17 @@ export default function AdminMapPage() {
           setChatInput={setChatInput}
           chatReply={chatReply}
           setChatReply={setChatReply}
+          device={slamStart ? { x: slamStart.x, y: slamStart.y, z: slamStart.z ?? null } : null}
         />
       )}
 
       {showSidebar && <ItemsSidebar items={items} filterText={search} slamStart={slamStart} />}
+
+      {mousePos && (
+        <div style={{ position: "fixed", left: 16, bottom: 16, background: "#0b0b0f", border: "1px solid #2a2a2e", color: "#e5e7eb", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }}>
+          ({Math.round(mousePos.x)}, {Math.round(mousePos.y)})
+        </div>
+      )}
 
       {toast && (
         <div

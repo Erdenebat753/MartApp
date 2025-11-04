@@ -26,6 +26,8 @@ export default function ARTab() {
   const [alignment, setAlignment] = useState<"Gravity"|"GravityAndHeading"|"Camera">("GravityAndHeading");
   const [useSensor, setUseSensor] = useState<boolean>(false);
   const { headingDeg: sensorHeading, available: sensorAvailable } = useSensorHeading(150);
+  const [ppm, setPpm] = useState<number>(PIXELS_PER_METER);
+  const [transUseCurrentYaw, setTransUseCurrentYaw] = useState<boolean>(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const { route, compute, clear } = useRouteCompute();
@@ -55,12 +57,14 @@ export default function ARTab() {
   const effectiveHeading = (() => {
     const base = Number(headingBase || 0);
     const d0 = deviceYaw0 ?? yawUsed;
-    const delta = normalizeDeg(yawUsed - d0);
+    // Invert delta sign to match admin/map rotation direction
+    const delta = normalizeDeg(d0 - yawUsed);
     return normalizeDeg(base + delta);
   })();
 
+  // Map arrow uses absolute heading: server base + device delta.
   const headingForMap = useYawOnly
-    ? normalizeDeg(yawUsed - (deviceYaw0 ?? yawUsed))
+    ? normalizeDeg((deviceYaw0 ?? yawUsed) - yawUsed)
     : effectiveHeading;
 
   // Recompute user map position from camera movement
@@ -71,11 +75,12 @@ export default function ARTab() {
     // compensate AR forward (-Z): use -dz so forward increases +Y in up-coords
     const vx = dx;
     const vy = -dz;
-    const theta = (headingBase - (deviceYaw0 ?? 0)) * Math.PI / 180;
+    const yawRef = transUseCurrentYaw ? yawUsed : (deviceYaw0 ?? yawUsed);
+    const theta = (headingBase - yawRef) * Math.PI / 180;
     const rx =  Math.cos(theta) * vx - Math.sin(theta) * vy;
     const ry =  Math.sin(theta) * vx + Math.cos(theta) * vy; // up-positive
-    const px = rx * PIXELS_PER_METER;
-    const pyDown = -ry * PIXELS_PER_METER; // convert up->down for image coords
+    const px = rx * ppm;
+    const pyDown = -ry * ppm; // convert up->down for image coords
     setUser({ x: slamStart.x + px, y: slamStart.y + pyDown });
   }, [slamStart, camStart, camNow, headingBase, deviceYaw0]);
 
@@ -122,7 +127,7 @@ export default function ARTab() {
           if (debug) console.log('[AR tracking]', st, rsn);
         }} />
         {/* Debug toggle */}
-        <View style={{ position: 'absolute', right: 8, top: 8, gap: 6 }}>
+        <View style={{ position: 'absolute', right: 8, top: 8, gap: 6, zIndex: 1000, elevation: 1000 }}>
           <Pressable onPress={() => setDebug((v)=>!v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginBottom: 6 }}>
             <Text style={{ color: '#fff', fontSize: 12 }}>{debug ? 'Debug: ON' : 'Debug: OFF'}</Text>
           </Pressable>
@@ -148,14 +153,30 @@ export default function ARTab() {
             <Text style={{ color: '#fff', fontSize: 12 }}>Set Base = Now</Text>
           </Pressable>
           {debug && (
-            <View style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+            <View style={{ backgroundColor: '#000000CC', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, zIndex: 1001, elevation: 1001 }}>
               <Text style={{ color: '#fff', fontSize: 11 }}>yaw0:{deviceYaw0===null?'-':deviceYaw0.toFixed(1)} yaw:{yawUsed.toFixed(1)} sens:{sensorAvailable?sensorHeading.toFixed(1):'N/A'}</Text>
               <Text style={{ color: '#fff', fontSize: 11 }}>headBase:{headingBase.toFixed(1)} eff:{effectiveHeading.toFixed(1)} map:{headingForMap.toFixed(1)}</Text>
               <Text style={{ color: '#fff', fontSize: 11 }}>cam0:{camStart?`${camStart[0].toFixed(2)},${camStart[1].toFixed(2)},${camStart[2].toFixed(2)}`:'-'}</Text>
               <Text style={{ color: '#fff', fontSize: 11 }}>cam :{camNow?`${camNow[0].toFixed(2)},${camNow[1].toFixed(2)},${camNow[2].toFixed(2)}`:'-'}</Text>
+              {camStart && camNow && (
+                <Text style={{ color: '#fff', fontSize: 11 }}>
+                  d:(x:{(camNow[0]-camStart[0]).toFixed(2)} z:{(camNow[2]-camStart[2]).toFixed(2)}) ppm:{ppm}
+                </Text>
+              )}
               <Text style={{ color: '#fff', fontSize: 11 }}>user:{user?`${user.x.toFixed(1)},${user.y.toFixed(1)}`:'-'}</Text>
             </View>
           )}
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <Pressable onPress={() => setPpm(p=>Math.max(10, p-20))} style={{ backgroundColor: '#00000088', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontSize: 12 }}>PPM -</Text>
+            </Pressable>
+            <Pressable onPress={() => setPpm(p=>p+20)} style={{ backgroundColor: '#00000088', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontSize: 12 }}>PPM +</Text>
+            </Pressable>
+            <Pressable onPress={() => setTransUseCurrentYaw(v=>!v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontSize: 12 }}>Trans Rot: {transUseCurrentYaw ? 'CURRENT' : 'BASE'}</Text>
+            </Pressable>
+          </View>
           <Pressable onPress={async ()=>{
             try {
               const r = await fetch(`${API_BASE}/api/slam`);
@@ -220,7 +241,7 @@ export default function ARTab() {
         polyline={route}
         user={user}
         headingDeg={headingForMap}
-        headingInvert={true}
+        headingInvert={false}
         debug={debug}
         onLongPress={(_p) => { /* disabled manual set while SLAM live */ }}
       />

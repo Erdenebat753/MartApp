@@ -1,0 +1,43 @@
+import React, { useMemo } from "react";
+
+export default function ItemsList({ items, filterText, slamStart }) {
+  const list = useMemo(() => {
+    const t = (filterText || "").toLowerCase();
+    return items.filter(
+      (it) => !t || it.name.toLowerCase().includes(t) || it.type.toLowerCase().includes(t)
+    );
+  }, [items, filterText]);
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {slamStart && (
+        <div style={{ padding: 8, border: "1px solid var(--border)", borderRadius: 8, background: "var(--panel)" }}>
+          <div style={{ color: '#a78bfa', fontWeight: 700, marginBottom: 4 }}>SLAM Start</div>
+          <div style={{ fontSize: 12, color: 'var(--text)' }}>
+            ({Math.round(Number(slamStart.x))}, {Math.round(Number(slamStart.y))})
+            {typeof slamStart.heading_deg === 'number' ? ` · ${slamStart.heading_deg}°` : ''}
+          </div>
+        </div>
+      )}
+      {list.map((it) => (
+        <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--panel)' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{it.name}</div>
+            <div style={{ fontSize: 11, opacity: 0.8 }}>
+              {it.type}
+              {it.type === 'slam_start' && (it.heading_deg != null ? ` · ${it.heading_deg}°` : '')}
+              {it.type !== 'slam_start' && (it.price != null ? ` · $${it.price}` : '')}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.8 }}>({Math.round(it.x)}, {Math.round(it.y)})</div>
+        </div>
+      ))}
+      {list.length === 0 && (
+        <div style={{ padding: 12, border: '1px dashed var(--border)', borderRadius: 8, color: 'var(--muted)' }}>
+          No items.
+        </div>
+      )}
+    </div>
+  );
+}
+

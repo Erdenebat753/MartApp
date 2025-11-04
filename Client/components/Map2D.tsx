@@ -88,7 +88,7 @@ export default function Map2D({
               const length = 24; // px on screen (bigger for visibility)
               const halfBase = 6; // triangle base half-width
               const angleDeg = headingInvert ? -headingDeg : headingDeg;
-              const rad = (angleDeg - 90) * Math.PI / 180; // rotate so 0deg points up
+              const rad = (angleDeg) * Math.PI / 180; // AdminDashboard standard: 0°=right, 90°=down
               const dirX = Math.cos(rad);
               const dirY = Math.sin(rad);
               // tip point
