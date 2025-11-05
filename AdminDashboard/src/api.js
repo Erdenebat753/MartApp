@@ -88,3 +88,40 @@ export async function deleteItem(id) {
 export async function getSlamStart() {
   return jsonFetch(`${API_BASE}/api/slam`);
 }
+
+// Marts
+export async function getMarts() {
+  return jsonFetch(`${API_BASE}/api/marts`);
+}
+
+export async function getMart(id) {
+  return jsonFetch(`${API_BASE}/api/marts/${id}`);
+}
+
+export async function createMart(mart) {
+  return jsonFetch(`${API_BASE}/api/marts`, {
+    method: "POST",
+    body: JSON.stringify(mart),
+  });
+}
+
+export async function updateMart(id, mart) {
+  return jsonFetch(`${API_BASE}/api/marts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(mart),
+  });
+}
+
+export async function uploadMartImage(id, file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/marts/${id}/map-image`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt}`);
+  }
+  return res.json();
+}

@@ -63,6 +63,34 @@ class Path(Base):
 
     from_item = relationship("Item", foreign_keys=[from_item_id], back_populates="from_paths")
     to_item   = relationship("Item", foreign_keys=[to_item_id],   back_populates="to_paths")
+
+
+class Mart(Base):
+    __tablename__ = "marts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(120), nullable=False)
+
+    # Store entrance or reference coordinate on the map (in map pixels)
+    coord_x = Column(DECIMAL(10,4), nullable=True)
+    coord_y = Column(DECIMAL(10,4), nullable=True)
+
+    # Intrinsic map image size in pixels
+    map_width_px = Column(Integer, nullable=True)
+    map_height_px = Column(Integer, nullable=True)
+
+    # Public URL to map image served from /uploads
+    map_image_url = Column(Text, nullable=True)
+
+    created_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp()
+    )
+    updated_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp()
+    )
 class Segment(Base):
     __tablename__ = "segments"
 

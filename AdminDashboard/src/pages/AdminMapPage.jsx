@@ -6,11 +6,7 @@ import React, {
   useState,
 } from "react";
 import {
-  DISPLAY_HEIGHT,
   DISPLAY_WIDTH,
-  MAP_HEIGHT_PX,
-  MAP_WIDTH_PX,
-  SCALE,
   SNAP_THRESHOLD_PX,
 } from "../config";
 import {
@@ -31,16 +27,11 @@ import Toolbar from "../components/Toolbar";
 import MapCanvas from "../components/MapCanvas";
 import ItemPanel from "../components/ItemPanel";
 import ChatPanel from "../components/ChatPanel";
+import { API_BASE } from "../config";
+import { useMart } from "../context/MartContext";
 import ItemsSidebar from "../components/ItemsSidebar";
 
-function toDisplay({ x, y }) {
-  return { x: x * SCALE, y: y * SCALE };
-}
-function toMapCoords(clientX, clientY, rect) {
-  const dx = clientX - rect.left;
-  const dy = clientY - rect.top;
-  return { x: dx / SCALE, y: dy / SCALE };
-}
+// toDisplay and toMapCoords will use dynamic scale (computed per mart)
 
 export default function AdminMapPage() {
   const containerRef = useRef(null);
@@ -88,6 +79,45 @@ export default function AdminMapPage() {
   const [showGrid, setShowGrid] = useState(false);
   const [showLabels, setShowLabels] = useState(false);
   const [mousePos, setMousePos] = useState(null);
+  const { mart } = useMart();
+
+  const mapWidthPx = useMemo(() => Number(mart?.map_width_px) || null, [mart]);
+  const mapHeightPx = useMemo(() => Number(mart?.map_height_px) || null, [mart]);
+  const displayWidth = DISPLAY_WIDTH;
+  const scale = useMemo(() => {
+    if (mapWidthPx && mapWidthPx > 0) return displayWidth / mapWidthPx;
+    // fallback to 1:1 if unknown; MapCanvas will use defaults
+    return undefined;
+  }, [mapWidthPx, displayWidth]);
+  const displayHeight = useMemo(() => {
+    if (scale && mapHeightPx) return Math.round(mapHeightPx * scale);
+    return undefined;
+  }, [scale, mapHeightPx]);
+  const backgroundImageUrl = useMemo(() => {
+    const u = mart?.map_image_url;
+    let src = null;
+    if (!u) {
+      src = "/Frame1.png";
+    } else {
+      src = (typeof u === 'string' && u.startsWith('http')) ? u : `${API_BASE}${u}`;
+    }
+    if (mart && src) {
+      const sep = src.includes('?') ? '&' : '?';
+      src = `${src}${sep}v=${encodeURIComponent(mart.id)}`;
+    }
+    return src || "/Frame1.png";
+  }, [mart]);
+
+  const toDisplay = useCallback(({ x, y }) => {
+    const s = scale || 1;
+    return { x: x * s, y: y * s };
+  }, [scale]);
+  const toMapCoords = useCallback((clientX, clientY, rect) => {
+    const s = scale || 1;
+    const dx = clientX - rect.left;
+    const dy = clientY - rect.top;
+    return { x: dx / s, y: dy / s };
+  }, [scale]);
 
   useEffect(() => {
     (async () => {
@@ -182,8 +212,10 @@ export default function AdminMapPage() {
     async (e) => {
       const rect = containerRef.current.getBoundingClientRect();
       let p = toMapCoords(e.clientX, e.clientY, rect);
-      p.x = Math.max(0, Math.min(MAP_WIDTH_PX, p.x));
-      p.y = Math.max(0, Math.min(MAP_HEIGHT_PX, p.y));
+      const maxW = mapWidthPx ?? Number.POSITIVE_INFINITY;
+      const maxH = mapHeightPx ?? Number.POSITIVE_INFINITY;
+      p.x = Math.max(0, Math.min(maxW, p.x));
+      p.y = Math.max(0, Math.min(maxH, p.y));
 
       if (drawMode || routeMode) {
         const snap = findNearestSnap(p);
@@ -305,8 +337,11 @@ export default function AdminMapPage() {
   }, [routeStart, routeEnd]);
 
   const polylineStr = useCallback(
-    (pts) => pts.map((p) => `${p.x * SCALE},${p.y * SCALE}`).join(" "),
-    []
+    (pts) => {
+      const s = scale || 1;
+      return pts.map((p) => `${p.x * s},${p.y * s}`).join(" ");
+    },
+    [scale]
   );
 
   const saveNewItem = useCallback(async () => {
@@ -522,6 +557,7 @@ export default function AdminMapPage() {
       />
 
       <MapCanvas
+        key={mart ? mart.id : 'no-mart'}
         containerRef={containerRef}
         onMapClick={handleMapClick}
         onMapMove={(p) => setMousePos(p)}
@@ -560,6 +596,13 @@ export default function AdminMapPage() {
         showLabels={showLabels}
         toDisplay={toDisplay}
         polylineStr={polylineStr}
+        // dynamic map config from Mart
+        backgroundImageUrl={backgroundImageUrl}
+        displayWidth={displayWidth}
+        displayHeight={displayHeight}
+        scale={scale}
+        mapWidthPx={mapWidthPx ?? undefined}
+        mapHeightPx={mapHeightPx ?? undefined}
       />
 
       {(createMode || (editMode && selectedItem)) &&

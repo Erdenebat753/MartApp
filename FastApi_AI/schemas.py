@@ -155,3 +155,28 @@ class SlamStartRead(BaseModel):
     heading_deg: Optional[float] = None
     class Config:
         from_attributes = True
+
+
+#
+# MART
+#
+class MartBase(BaseModel):
+    name: str
+    # Accept longitude/latitude aliases but store as coord_x/coord_y
+    if HAS_V2:
+        coord_x: Optional[float] = Field(default=None, validation_alias=AliasChoices('coord_x','longitude','lon'))
+        coord_y: Optional[float] = Field(default=None, validation_alias=AliasChoices('coord_y','latitude','lat'))
+    else:
+        coord_x: Optional[float] = None
+        coord_y: Optional[float] = None
+    map_width_px: Optional[int] = None
+    map_height_px: Optional[int] = None
+    map_image_url: Optional[str] = None
+
+class MartCreate(MartBase):
+    pass
+
+class MartRead(MartBase):
+    id: int
+    class Config:
+        from_attributes = True
