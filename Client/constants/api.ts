@@ -1,12 +1,19 @@
 import { Platform } from "react-native";
+import { log } from "../src/logger";
 
 export const API_BASE = (() => {
   const env = process.env.EXPO_PUBLIC_API_BASE;
-  if (env && env.length > 0) return env;
-  if (Platform.OS === "android") {
-    // TODO: replace with your LAN IP for device testing
-    return "http://10.46.73.109:8000";
+  if (env && env.length > 0) {
+    log.debug("[API_BASE] using env", env);
+    return env;
   }
-  return "http://127.0.0.1:8000";
+  if (Platform.OS === "android") {
+    // Replace with your LAN IP when testing on device/emulator
+    const def = "http://10.0.2.2:5001"; // Android emulator → host loopback
+    log.warn("[API_BASE] env not set; defaulting to", def);
+    return def;
+  }
+  const def = "http://127.0.0.1:5001";
+  log.warn("[API_BASE] env not set; defaulting to", def);
+  return def;
 })();
-

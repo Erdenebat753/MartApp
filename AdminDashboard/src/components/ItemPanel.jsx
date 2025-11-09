@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 
+import { API_BASE } from "../config";
+import { uploadItemImage } from "../api";
+
 export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, onSaveEdit, onDelete, onCancel, onPickHeading }) {
   const [pos, setPos] = useState({ left: 16, top: 16 });
   const [size, setSize] = useState({ width: 360, height: 520 });
@@ -94,17 +97,41 @@ export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, on
         <input type="number" value={newItem.y ?? ""} onChange={(e)=>setNewItem((p)=>({...p, y: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
         <label>Z</label>
         <input type="number" step="0.01" value={newItem.z} onChange={(e)=>setNewItem((p)=>({...p, z: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
-        <label>Image URL</label>
-        <input value={newItem.image_url} onChange={(e)=>setNewItem((p)=>({...p, image_url: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Image</label>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input value={newItem.image_url} onChange={(e)=>setNewItem((p)=>({...p, image_url: e.target.value}))} placeholder="/uploads/item_xxx.png" style={{ flex: 1, background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+          <label style={{ padding: '6px 10px', border: '1px solid #3f3f46', borderRadius: 6, cursor: 'pointer' }}>
+            Upload
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async (e)=>{
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const { image_url } = await uploadItemImage(file);
+                setNewItem((p)=>({ ...p, image_url }));
+              } catch (err) {
+                alert('Upload failed: ' + (err?.message || err));
+              }
+            }} />
+          </label>
+        </div>
         <label>Price</label>
         <input type="number" step="0.01" value={newItem.price} onChange={(e)=>setNewItem((p)=>({...p, price: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
         <label>Sale %</label>
         <input type="number" value={newItem.sale_percent} onChange={(e)=>setNewItem((p)=>({...p, sale_percent: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <label>Sale Ends</label>
+        <input type="datetime-local" value={newItem.sale_end_at || ""} onChange={(e)=>setNewItem((p)=>({...p, sale_end_at: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
         <label>Note</label>
         <input value={newItem.note} onChange={(e)=>setNewItem((p)=>({...p, note: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
         <label>Desc</label>
         <textarea rows={2} value={newItem.description} onChange={(e)=>setNewItem((p)=>({...p, description: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
           </div>
+          {/* Preview */}
+          {newItem.image_url && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: '#aaa', marginBottom: 4 }}>Preview</div>
+              <img alt="preview" src={(newItem.image_url.startsWith('http') ? newItem.image_url : `${API_BASE}${newItem.image_url}`)} style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, border: '1px solid #2a2a2e' }} />
+            </div>
+          )}
           {/* Actions moved to header: Save / Update / Close */}
           <div style={{ marginTop: 6, fontSize: 12, color: "#bbb" }}>
             {editMode ? "Tip: Click an item to edit." : "Tip: Click map to set position (snaps to nearby points)."}

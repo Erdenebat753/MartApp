@@ -32,10 +32,10 @@ export async function deleteSegment(id) {
   return true;
 }
 
-export async function routeByCoords(start, end) {
+export async function routeByCoords(start, end, algorithm = 'astar') {
   return jsonFetch(`${API_BASE}/api/route/coords`, {
     method: "POST",
-    body: JSON.stringify({ start, end }),
+    body: JSON.stringify({ start, end, algorithm }),
   });
 }
 
@@ -46,8 +46,9 @@ export async function planRoute(start, item_ids) {
   });
 }
 
-export async function getItems() {
-  return jsonFetch(`${API_BASE}/api/items`);
+export async function getItems(mart_id) {
+  const qp = mart_id != null ? `?mart_id=${encodeURIComponent(mart_id)}` : "";
+  return jsonFetch(`${API_BASE}/api/items${qp}`);
 }
 
 export async function createItem(item) {
@@ -116,6 +117,21 @@ export async function uploadMartImage(id, file) {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`${API_BASE}/api/marts/${id}/map-image`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt}`);
+  }
+  return res.json();
+}
+
+// Upload an item image; returns { image_url }
+export async function uploadItemImage(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/api/items/upload-image`, {
     method: "POST",
     body: form,
   });

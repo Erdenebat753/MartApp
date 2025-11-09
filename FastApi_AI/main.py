@@ -9,6 +9,7 @@ from routers import items, paths, route, segments
 from routers import slam
 from routers import chatbot
 from routers import marts
+from routers import lists
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -34,6 +35,7 @@ app.include_router(segments.router)
 app.include_router(slam.router)
 app.include_router(chatbot.router)
 app.include_router(marts.router)
+app.include_router(lists.router)
 
 # Эхний удаа dev орчинд table-уудыг автоматаар үүсгэхэд ашиглаж болно
 # (Prod дээр alembic migration руу шилжинэ)
@@ -61,6 +63,20 @@ async def on_startup():
                 await conn2.execute(text("ALTER TABLE items ADD COLUMN z REAL"))
             if 'heading_deg' not in cols:
                 await conn2.execute(text("ALTER TABLE items ADD COLUMN heading_deg REAL"))
+            if 'mart_id' not in cols:
+                await conn2.execute(text("ALTER TABLE items ADD COLUMN mart_id INTEGER"))
+                # ensure at least one mart exists
+                mres = await conn2.execute(text("SELECT id FROM marts LIMIT 1"))
+                row = mres.fetchone()
+                if row is None:
+                    await conn2.execute(text("INSERT INTO marts (name) VALUES ('Default Mart')"))
+                    mres2 = await conn2.execute(text("SELECT id FROM marts ORDER BY id DESC LIMIT 1"))
+                    row = mres2.fetchone()
+                default_mart_id = int(row[0]) if row else 1
+                # set mart_id for existing items
+                await conn2.execute(text("UPDATE items SET mart_id = :mid WHERE mart_id IS NULL"), { 'mid': default_mart_id })
+            if 'sale_end_at' not in cols:
+                await conn2.execute(text("ALTER TABLE items ADD COLUMN sale_end_at TIMESTAMP"))
     except Exception:
         pass
     # one-time migrate existing items.type='slam_start' into slam_start table

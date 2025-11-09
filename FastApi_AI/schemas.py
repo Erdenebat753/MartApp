@@ -8,6 +8,7 @@ try:
 except Exception:
     HAS_V2 = False
 from typing import Optional, List
+from datetime import datetime
 
 #
 # ITEM
@@ -15,6 +16,7 @@ from typing import Optional, List
 class ItemBase(BaseModel):
     if HAS_V2:
         model_config = ConfigDict(extra='ignore')
+    mart_id: int
     name: str
     type: str         # "product_zone" / "entrance" / "checkout"
     x: float
@@ -24,6 +26,7 @@ class ItemBase(BaseModel):
     note: Optional[str] = None
     price: Optional[float] = None          # new
     sale_percent: Optional[int] = None     # new
+    sale_end_at: Optional[datetime] = None # new: sale дуусах хугацаа
     description: Optional[str] = None 
     # Accept heading_deg or heading or headingDeg from clients
     if HAS_V2:
@@ -101,6 +104,8 @@ class SegmentRead(BaseModel):
 class RouteByCoordsRequest(BaseModel):
     start: Point
     end: Point
+    # optional: choose shortest-path algorithm: 'dijkstra' | 'astar'
+    algorithm: Optional[str] = None
 
 class RoutePolylineResponse(BaseModel):
     polyline: List[RoutePoint]
@@ -177,6 +182,21 @@ class MartCreate(MartBase):
     pass
 
 class MartRead(MartBase):
+    id: int
+    class Config:
+        from_attributes = True
+
+#
+# LISTS (stores item IDs)
+#
+class ItemListBase(BaseModel):
+    name: Optional[str] = None
+    item_ids: List[int]
+
+class ItemListCreate(ItemListBase):
+    pass
+
+class ItemListRead(ItemListBase):
     id: int
     class Config:
         from_attributes = True

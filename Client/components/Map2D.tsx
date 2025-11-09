@@ -66,6 +66,8 @@ export default function Map2D({
           source={backgroundSource}
           style={{ width: dispWidth, height: dispHeight, position: 'absolute', left: offX, top: offY }}
           resizeMode="stretch"
+          onLoad={() => { if (debug) console.log('[Map2D] image loaded'); }}
+          onError={(e) => { if (debug) console.log('[Map2D] image load error', e?.nativeEvent); }}
         />
       ) : (
         <View style={{ position: 'absolute', left: offX, top: offY, width: dispWidth, height: dispHeight, backgroundColor: "#222" }} />

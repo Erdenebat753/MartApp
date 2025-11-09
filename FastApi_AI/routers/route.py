@@ -162,7 +162,7 @@ def _connect_nearby_nodes(graph: Dict[str, Dict[str, float]], coords_by_key: Dic
                 graph[ki][kj] = min(graph[ki].get(kj, float('inf')), w)
                 graph[kj][ki] = min(graph[kj].get(ki, float('inf')), w)
 
-def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float], graph, coords_by_key, polylines):
+def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float], graph, coords_by_key, polylines, algorithm: str = "dijkstra"):
     # snap endpoints
     def best_projection(p):
         best=None; best_d=float('inf')
@@ -199,19 +199,57 @@ def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float
     add_edge(S, sb_k, s_to_sq + _dist(sq, sb))
     add_edge(ea_k, E, _dist(ea, eq) + e_to_eq)
     add_edge(eb_k, E, _dist(eb, eq) + e_to_eq)
-    # dijkstra
-    import heapq
-    pq=[(0.0,S)]; dist_map={S:0.0}; prev={S:None}; vis=set()
-    while pq:
-        d,u=heapq.heappop(pq)
-        if u in vis: continue
-        vis.add(u)
-        if u==E: break
-        for v,w in graph.get(u,{}).items():
-            nd=d+w
-            if nd < dist_map.get(v,float('inf')):
-                dist_map[v]=nd; prev[v]=u; heapq.heappush(pq,(nd,v))
+    # shortest path (Dijkstra or A*)
+    def dijkstra_search():
+        pq=[(0.0,S)]; dist_map={S:0.0}; prev={S:None}; vis=set()
+        while pq:
+            d,u=heapq.heappop(pq)
+            if u in vis: continue
+            vis.add(u)
+            if u==E: break
+            for v,w in graph.get(u,{}).items():
+                nd=d+w
+                if nd < dist_map.get(v,float('inf')):
+                    dist_map[v]=nd; prev[v]=u; heapq.heappush(pq,(nd,v))
+        return prev
+    def astar_search():
+        # heuristic = Euclidean distance to end point (eq)
+        def h(key: str) -> float:
+            if key == E:
+                return 0.0
+            if key == S:
+                return _dist(start, end)
+            p = coords_by_key.get(key)
+            if p is None:
+                return 0.0
+            return _dist(p, end)
+        open_pq=[(h(S), 0.0, S)]  # (f, g, node)
+        g_map={S:0.0}; prev={S:None}
+        closed=set()
+        while open_pq:
+            f,g,u=heapq.heappop(open_pq)
+            if u in closed:
+                continue
+            closed.add(u)
+            if u==E:
+                break
+            for v,w in graph.get(u,{}).items():
+                tentative=g+w
+                if tentative < g_map.get(v, float('inf')):
+                    g_map[v]=tentative
+                    prev[v]=u
+                    heapq.heappush(open_pq, (tentative + h(v), tentative, v))
+        return prev
+
+    if (algorithm or "").lower() == "astar":
+        prev = astar_search()
+    else:
+        prev = dijkstra_search()
     if E not in prev:
+        # cleanup before returning
+        graph.pop(S, None); graph.pop(E, None)
+        for k in list(graph.keys()):
+            graph[k].pop(S, None); graph[k].pop(E, None)
         return [start, end]
     # reconstruct
     path=[]; cur=E
@@ -268,7 +306,8 @@ async def get_route_by_coords(req: RouteByCoordsRequest, db: AsyncSession = Depe
     graph, coords_by_key = _build_graph(polylines)
     # Connect very-near nodes to bridge tiny gaps between drawn segments
     _connect_nearby_nodes(graph, coords_by_key, eps=8.0)
-    poly = _shortest_polyline_between((req.start.x, req.start.y), (req.end.x, req.end.y), graph, coords_by_key, polylines)
+    algo = (req.algorithm or "").lower().strip() or "astar"
+    poly = _shortest_polyline_between((req.start.x, req.start.y), (req.end.x, req.end.y), graph, coords_by_key, polylines, algorithm=algo)
     return RoutePolylineResponse(polyline=[RoutePoint(x=p[0], y=p[1]) for p in poly])
 
 @router.post("/plan", response_model=RoutePlanResponse)

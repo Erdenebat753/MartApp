@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { View, Dimensions, Text, TextInput, Pressable, ScrollView, Alert } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import ARTestScreen from "../../components/ARTestScreen";
 import Map2D, { Point } from "../../components/Map2D";
-import { MAP_HEIGHT_PX, MAP_WIDTH_PX } from "../../constants/map";
+import IndoorMap from "../../components/mapbox/IndoorMap";
+import { MAPBOX_TOKEN } from "../../constants/mapbox";
 import { useItems } from "../../hooks/useItems";
 import { useSlamStart } from "../../hooks/useSlamStart";
 import { useSensorHeading } from "../../hooks/useSensorHeading";
@@ -10,11 +12,13 @@ import { useRouteCompute } from "../../hooks/useRoute";
 import { API_BASE } from "../../constants/api";
 import { PIXELS_PER_METER } from "../../constants/map";
 import type { Item } from "../../src/types";
+import { useMartMeta } from "../../hooks/useMartMeta";
 
 export default function ARTab() {
   const { width, height } = Dimensions.get("window");
   const half = Math.floor(height * 0.5);
-  const { items } = useItems();
+  const { mart, mapWidthPx, mapHeightPx, imageSource } = useMartMeta();
+  const { items } = useItems(mart?.id);
   const [slamStart, setSlamStart] = useState<Point | null>(null);
   const [headingBase, setHeadingBase] = useState<number>(0);
   const [user, setUser] = useState<Point | null>(null);
@@ -31,7 +35,7 @@ export default function ARTab() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const { route, compute, clear } = useRouteCompute();
-  const [debug, setDebug] = useState(true);
+  const [debug, setDebug] = useState(false);
 
   // Kick off initial SLAM fetch (no-op if already fetched by poller)
   useSlamStart(items, () => {}, () => {});
@@ -114,8 +118,11 @@ export default function ARTab() {
     );
   };
 
+  const useMapbox = !!MAPBOX_TOKEN;
+
   return (
-    <View style={{ flex: 1, backgroundColor: "#000" }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#000" }} edges={["top"]}>
+      <View style={{ flex: 1 }}>
       {/* TOP: AR */}
       <View style={{ height: half }}>
         <ARTestScreen alignment={alignment} onDevicePose={(pos, yawDeg) => {
@@ -232,19 +239,42 @@ export default function ARTab() {
       </View>
 
       {/* BOTTOM: 2D Map */}
-      <Map2D
-        width={width}
-        height={half}
-        mapWidthPx={MAP_WIDTH_PX}
-        mapHeightPx={MAP_HEIGHT_PX}
-        backgroundSource={require("@/assets/images/Frame1.png")}
-        polyline={route}
-        user={user}
-        headingDeg={headingForMap}
-        headingInvert={false}
-        debug={debug}
-        onLongPress={(_p) => { /* disabled manual set while SLAM live */ }}
-      />
-    </View>
+      {useMapbox ? (
+        <IndoorMap
+          width={width}
+          height={half}
+          mapWidthPx={mapWidthPx || 675}
+          mapHeightPx={mapHeightPx || 878}
+          backgroundSource={(imageSource as any)?.uri}
+          polyline={route}
+          user={user || undefined}
+          headingDeg={headingForMap}
+          debug={debug}
+          onLongPress={(_p) => { /* disabled manual set while SLAM live */ }}
+        />
+      ) : (
+        <Map2D
+          width={width}
+          height={half}
+          mapWidthPx={mapWidthPx || 675}
+          mapHeightPx={mapHeightPx || 878}
+          backgroundSource={imageSource}
+          polyline={route}
+          user={user}
+          headingDeg={headingForMap}
+          headingInvert={false}
+          debug={debug}
+          onLongPress={(_p) => { /* disabled manual set while SLAM live */ }}
+        />
+      )}
+      {!imageSource && (
+        <View style={{ position: 'absolute', bottom: 8, left: 8, right: 8, backgroundColor: '#550000aa', padding: 8, borderRadius: 8 }}>
+          <Text style={{ color: '#fff', fontSize: 12 }}>
+            No map image configured. Upload a map for this mart in the Admin dashboard or set EXPO_PUBLIC_API_BASE correctly.
+          </Text>
+        </View>
+      )}
+      </View>
+    </SafeAreaView>
   );
 }

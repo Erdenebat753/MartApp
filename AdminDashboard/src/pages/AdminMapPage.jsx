@@ -58,6 +58,7 @@ export default function AdminMapPage() {
     note: "",
     price: "",
     sale_percent: "",
+    sale_end_at: "",
     description: "",
     heading_deg: "",
   });
@@ -126,7 +127,7 @@ export default function AdminMapPage() {
         setSegments(data);
       } catch {}
       try {
-        const it = await getItems();
+        const it = await getItems(mart?.id);
         setItems(it);
       } catch {}
       try {
@@ -134,7 +135,7 @@ export default function AdminMapPage() {
         setSlamStart(s);
       } catch {}
     })();
-  }, []);
+  }, [mart]);
 
   const allSnapPoints = useMemo(() => {
     const pts = [];
@@ -292,6 +293,7 @@ export default function AdminMapPage() {
             note: it.note || "",
             price: it.price ?? "",
             sale_percent: it.sale_percent ?? "",
+            sale_end_at: it.sale_end_at ? String(it.sale_end_at).slice(0,16) : "",
             description: it.description || "",
             heading_deg: it.heading_deg ?? "",
           });
@@ -329,7 +331,7 @@ export default function AdminMapPage() {
   const handleComputeRoute = useCallback(async () => {
     if (!routeStart || !routeEnd) return;
     try {
-      const res = await routeByCoords(routeStart, routeEnd);
+      const res = await routeByCoords(routeStart, routeEnd, 'astar');
       setRoutePolyline(res.polyline || []);
     } catch (e) {
       alert("Route failed: " + (e?.message || e));
@@ -358,25 +360,24 @@ export default function AdminMapPage() {
           heading_deg: newItem.heading_deg === "" ? null : Number(newItem.heading_deg),
         });
         // reload items so mobile can see slam_start
-        const it = await getItems();
+        const it = await getItems(mart?.id);
         setItems(it);
         try { const s = await getSlamStart(); setSlamStart(s); } catch {}
       } else {
         const { heading_deg, ...rest } = newItem;
         const payload = {
           ...rest,
+          mart_id: mart?.id,
           x: Number(newItem.x ?? newItemPos.x),
           y: Number(newItem.y ?? newItemPos.y),
           z: newItem.z === "" ? null : Number(newItem.z),
           price: newItem.price === "" ? null : Number(newItem.price),
           sale_percent:
             newItem.sale_percent === "" ? null : parseInt(newItem.sale_percent, 10),
+          sale_end_at: newItem.sale_end_at === "" ? null : newItem.sale_end_at,
           heading_deg: (heading_deg === "" || heading_deg == null) ? null : Number(heading_deg),
         };
-        if (!payload.name || !payload.type) {
-          alert("Name and type are required");
-          return;
-        }
+        \n        if (payload.price == null || payload.price === '' || isNaN(Number(payload.price))) { alert('Price is required'); return; }\n        if (!payload.image_url || String(payload.image_url).trim() === '') { alert('Image is required'); return; }
         const created = await createItem(payload);
         setItems((prev) => Array.isArray(prev) ? [...prev, created] : [created]);
       }
@@ -404,26 +405,25 @@ export default function AdminMapPage() {
     const { heading_deg, ...rest } = newItem;
     const payload = {
       ...rest,
+      mart_id: mart?.id ?? selectedItem?.mart_id,
       x: Number(newItem.x ?? newItemPos?.x ?? selectedItem.x),
       y: Number(newItem.y ?? newItemPos?.y ?? selectedItem.y),
       z: newItem.z === "" ? null : Number(newItem.z),
       price: newItem.price === "" ? null : Number(newItem.price),
       sale_percent:
         newItem.sale_percent === "" ? null : parseInt(newItem.sale_percent, 10),
+      sale_end_at: newItem.sale_end_at === "" ? null : newItem.sale_end_at,
       heading_deg: (heading_deg === "" || heading_deg == null) ? null : Number(heading_deg),
     };
-    if (!payload.name || !payload.type) {
-      alert("Name and type are required");
-      return;
-    }
+    \n        if (payload.price == null || payload.price === '' || isNaN(Number(payload.price))) { alert('Price is required'); return; }\n        if (!payload.image_url || String(payload.image_url).trim() === '') { alert('Image is required'); return; }
     try {
       await updateItem(selectedItem.id, payload);
-      const it = await getItems();
+      const it = await getItems(mart?.id);
       setItems(it);
     } catch (e) {
       alert("Update failed: " + (e?.message || e));
     }
-  }, [selectedItem, newItem, newItemPos]);
+  }, [selectedItem, newItem, newItemPos, mart]);
 
   const handleDeleteItem = useCallback(async () => {
     if (!selectedItem) return;
@@ -445,6 +445,7 @@ export default function AdminMapPage() {
         note: "",
         price: "",
         sale_percent: "",
+        sale_end_at: "",
         description: "",
         heading_deg: "",
       });
@@ -538,7 +539,7 @@ export default function AdminMapPage() {
         }}
         onReloadItems={async () => {
           try {
-            const it = await getItems();
+            const it = await getItems(mart?.id);
             setItems(it);
           } catch {}
         }}
