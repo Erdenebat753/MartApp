@@ -10,6 +10,8 @@ from routers import slam
 from routers import chatbot
 from routers import marts
 from routers import lists
+from routers import categories
+from routers import auth
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -36,6 +38,8 @@ app.include_router(slam.router)
 app.include_router(chatbot.router)
 app.include_router(marts.router)
 app.include_router(lists.router)
+app.include_router(categories.router)
+app.include_router(auth.router)
 
 # Эхний удаа dev орчинд table-уудыг автоматаар үүсгэхэд ашиглаж болно
 # (Prod дээр alembic migration руу шилжинэ)
@@ -77,6 +81,8 @@ async def on_startup():
                 await conn2.execute(text("UPDATE items SET mart_id = :mid WHERE mart_id IS NULL"), { 'mid': default_mart_id })
             if 'sale_end_at' not in cols:
                 await conn2.execute(text("ALTER TABLE items ADD COLUMN sale_end_at TIMESTAMP"))
+            if 'category_id' not in cols:
+                await conn2.execute(text("ALTER TABLE items ADD COLUMN category_id INTEGER"))
     except Exception:
         pass
     # one-time migrate existing items.type='slam_start' into slam_start table

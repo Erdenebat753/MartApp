@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, TextInput, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useItems } from "../../hooks/useItems";
+import { useCategories } from "../../hooks/useCategories";
 import { useMartMeta } from "../../hooks/useMartMeta";
 import { useLists } from "../../hooks/useLists";
 import {
@@ -23,7 +24,6 @@ import {
   Plus,
   Trash,
   PencilSimple,
-  Cube,
 } from "phosphor-react-native";
 import { API_BASE } from "../../constants/api";
 
@@ -31,7 +31,13 @@ export default function HomePage() {
   const router = useRouter();
   const { mart } = useMartMeta();
   const { items } = useItems(mart?.id);
-  const { lists, create, update, remove, appendItems, removeItem } = useLists();
+  const { categories } = useCategories(mart?.id);
+  const catNameOf = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const c of categories || []) m.set(Number(c.id), String(c.name));
+    return m;
+  }, [categories]);
+  const { lists, create, update, remove, removeItem, appendItems } = useLists();
   // Removed free-text list name input; use one-click Add
   const itemsById = useMemo(
     () => new Map(items.map((it) => [it.id, it] as const)),
@@ -47,13 +53,29 @@ export default function HomePage() {
   const fmtPrice = (p?: number | null): string | null => {
     if (p == null) return null;
     try {
-      return `${Math.round(Number(p)).toLocaleString()} ₮`;
+      // 한국 통화 기호: ₩ (U+20A9)
+      return Math.round(Number(p)).toLocaleString() + " \u20A9";
     } catch {
-      return `${p}`;
+      return String(p);
     }
   };
 
-  const safeLists = Array.isArray(lists) ? (lists as any[]) : ([] as any[]);
+  const safeLists = useMemo(() => (
+    Array.isArray(lists) ? (lists as any[]) : ([] as any[])
+  ), [lists]);
+
+  // pick first list by default so user can add from search immediately
+  React.useEffect(() => {
+    if (selectedListId == null && safeLists.length > 0) {
+      const idVal = (safeLists[0] as any)?.id;
+      if (typeof idVal === "number") setSelectedListId(idVal);
+    }
+  }, [safeLists, selectedListId]);
+
+  const selectedListName = React.useMemo(() => {
+    const l = safeLists.find((x: any) => (x as any)?.id === selectedListId);
+    return (l as any)?.name || (selectedListId != null ? `List #${selectedListId}` : "없음");
+  }, [safeLists, selectedListId]);
 
   // quantities per list:item (client-side)
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -100,9 +122,23 @@ export default function HomePage() {
     }
   };
 
+  const onAddFromSearch = async (itemId: number) => {
+    if (selectedListId == null) {
+      Alert.alert("목록 선택", "먼저 상단에서 목록을 선택하세요.");
+      return;
+    }
+    try {
+      await appendItems(selectedListId, [itemId]);
+      setSearch("");
+    } catch (e: any) {
+      Alert.alert("추가 실패", e?.message || String(e));
+    }
+  };
+
   const renderSearchRow = (it: any) => {
     const uri = resolveImageUrl(it?.image_url || null);
     const priceText = fmtPrice(it?.price ?? null);
+    const cat = it?.category_id != null ? catNameOf.get(Number(it.category_id)) : null;
     return (
       <HStack
         key={it.id}
@@ -112,6 +148,7 @@ export default function HomePage() {
         py={2.5}
         style={{ borderBottomWidth: 1, borderBottomColor: "#1d1d22" }}
       >
+        <Pressable style={{ flex: 1 }} onPress={() => onAddFromSearch(it.id)}>
         <HStack alignItems="center" space={3} flex={1}>
           {uri ? (
             <Image
@@ -134,6 +171,11 @@ export default function HomePage() {
                   {priceText}
                 </Text>
               )}
+              {cat && (
+                <Badge colorScheme="coolGray" rounded="full" _text={{ fontSize: 10 }}>
+                  {cat}
+                </Badge>
+              )}
               {it?.sale_percent != null && (
                 <Badge
                   colorScheme="rose"
@@ -143,6 +185,12 @@ export default function HomePage() {
               )}
             </HStack>
           </VStack>
+        </HStack>
+        </Pressable>
+        <HStack space={2}>
+          <Button size="sm" colorScheme="emerald" onPress={() => onAddFromSearch(it.id)}>
+            담기
+          </Button>
         </HStack>
       </HStack>
     );
@@ -157,6 +205,7 @@ export default function HomePage() {
     const line = unit * q;
     const saleInfo = it ? saleLeft(it) : null;
     const note = it?.note || null;
+    const cat = it?.category_id != null ? catNameOf.get(Number(it.category_id)) : null;
     return (
       <HStack
         key={id}
@@ -187,6 +236,11 @@ export default function HomePage() {
               <Text color="#9ca3af" fontSize="xs">
                 {fmtPrice(unit)}
               </Text>
+              {cat && (
+                <Badge colorScheme="coolGray" rounded="full" _text={{ fontSize: 10 }}>
+                  {cat}
+                </Badge>
+              )}
               {saleInfo && (
                 <Badge
                   colorScheme="rose"
@@ -228,7 +282,7 @@ export default function HomePage() {
             variant="subtle"
             onPress={() => removeItem(list.id, id)}
           >
-            Remove
+            삭제
           </Button>
         </HStack>
       </HStack>
@@ -253,18 +307,7 @@ export default function HomePage() {
       .filter((it) => (it.name || "").toLowerCase().includes(q))
       .slice(0, 15);
   }, [search, items]);
-
-  const addItemToSelected = async (itemId: number) => {
-    if (!itemsById.has(itemId)) return;
-    let lid = selectedListId;
-    if (!lid) {
-      const created = await create("My List");
-      lid = created.id;
-      setSelectedListId(lid);
-    }
-    await appendItems(lid!, [itemId]);
-    Alert.alert("Added", `#${itemId} жаг?аал?ад н?мл??.`);
-  };
+  // addItemToSelected removed (no quick-add from search)
 
   return (
     <SafeAreaView
@@ -274,12 +317,12 @@ export default function HomePage() {
       <Box flex={1} bg="#0b0b0f" p={4}>
         <HStack alignItems="center" justifyContent="space-between" mb={3}>
           <Heading color="white" size="md">
-            My Lists
+            내 목록
           </Heading>
           <Box />
         </HStack>
 
-        {/* New list quick-add removed per request */}
+        {/* Add button removed per request */}
 
         {/* Target list selector for adding items from search */}
         <ScrollView
@@ -294,20 +337,21 @@ export default function HomePage() {
               const isSel =
                 selectedListId != null && (l as any)?.id === selectedListId;
               return (
-                <Badge
+                <Button
                   key={String(lid)}
-                  onTouchEnd={() => {
+                  size="sm"
+                  variant={isSel ? "solid" : "subtle"}
+                  colorScheme={isSel ? "info" : "coolGray"}
+                  borderRadius={999}
+                  px={3}
+                  py={1.5}
+                  onPress={() => {
                     const idVal = (l as any)?.id;
                     if (typeof idVal === "number") setSelectedListId(idVal);
                   }}
-                  rounded="full"
-                  variant={isSel ? "solid" : "subtle"}
-                  colorScheme={isSel ? "info" : "coolGray"}
-                  px={3}
-                  py={1.5}
                 >
                   <Text color="white">{lname || `List #${lid}`}</Text>
-                </Badge>
+                </Button>
               );
             })}
             <Badge
@@ -329,19 +373,31 @@ export default function HomePage() {
           </HStack>
         </ScrollView>
 
+        {/* Show selected list prominently so users know the target */}
+        <HStack alignItems="center" mb={2}>
+          <Text color="#9ca3af">선택된 목록: </Text>
+          <Text color="#e5e7eb" fontWeight="700">{selectedListName}</Text>
+        </HStack>
+
         {/* Item search to add into the selected list */}
-        <HStack space={2} mb={3}>
-          <Input
-            flex={1}
+        <HStack space={2} mb={3} alignItems="center">
+          {/* Use RN TextInput to avoid outlineWidth casting bug on Android */}
+          <MagnifyingGlass size={20} color="#9ca3af" />
+          <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Хай?"
-            variant="filled"
-            bg="#121212"
-            color="white"
-            InputLeftElement={
-              <Icon as={MagnifyingGlass} ml={3} color="#9ca3af" />
-            }
+            placeholder="검색..."
+            placeholderTextColor="#9ca3af"
+            style={{
+              flex: 1,
+              backgroundColor: "#121212",
+              color: "#ffffff",
+              borderRadius: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              borderWidth: 1,
+              borderColor: "#333333",
+            }}
           />
         </HStack>
 
@@ -351,7 +407,7 @@ export default function HomePage() {
               {results.map((it) => renderSearchRow(it))}
               {results.length === 0 && (
                 <Text color="#9ca3af" px={3} py={3}>
-                  Ү? дүн алга.
+                  결과가 없습니다.
                 </Text>
               )}
             </ScrollView>
@@ -381,7 +437,7 @@ export default function HomePage() {
                         /* TODO: rename modal */
                       }}
                     >
-                      Rename
+                      이름 변경
                     </Button>
                     <Button
                       colorScheme="rose"
@@ -389,12 +445,12 @@ export default function HomePage() {
                       leftIcon={<Icon as={Trash} color="white" size="xs" />}
                       onPress={async () => {
                         Alert.alert(
-                          "У??га??",
-                          "Эн? жаг?аал??г үн????? ???га? ???",
+                          "삭제하시겠습니까?",
+                          "이 목록을 정말 삭제하시겠습니까?",
                           [
-                            { text: "Ц??ла?", style: "cancel" },
+                            { text: "취소", style: "cancel" },
                             {
-                              text: "У??га?",
+                              text: "삭제",
                               style: "destructive",
                               onPress: async () => {
                                 const idVal = (l as any)?.id;
@@ -409,12 +465,12 @@ export default function HomePage() {
                         );
                       }}
                     >
-                      Delete
+                      삭제
                     </Button>
                   </HStack>
                 </HStack>
                 <Text color="#aaa" mt={1}>
-                  Items:{" "}
+                  항목:{" "}
                   {Array.isArray((l as any)?.item_ids)
                     ? (l as any).item_ids.length
                     : 0}
@@ -428,7 +484,7 @@ export default function HomePage() {
                 )}
                 <HStack alignItems="center" justifyContent="flex-end" mt={2}>
                   <Text color="#9ca3af" mr={2}>
-                    Total:
+                    합계:
                   </Text>
                   <Text color="#e5e7eb" fontWeight="700">
                     {fmtPrice(listTotal(l))}
@@ -441,7 +497,7 @@ export default function HomePage() {
                       router.push({ pathname: "/(tabs)/ar", params: {} })
                     }
                   >
-                    Open AR
+                    AR 열기
                   </Button>
                   <Button
                     variant="subtle"
@@ -452,14 +508,14 @@ export default function HomePage() {
                       }
                     }}
                   >
-                    Clear
+                    비우기
                   </Button>
                 </HStack>
               </Box>
             ))}
             {lists.length === 0 && (
               <Text color="#9ca3af" textAlign="center" mt={4}>
-                ?аг?аал? алга. ???? ?ин? н??л?.
+                목록이 없습니다. 새 목록을 만들어 보세요.
               </Text>
             )}
           </VStack>

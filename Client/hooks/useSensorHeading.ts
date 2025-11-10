@@ -17,9 +17,20 @@ export function useSensorHeading(intervalMs: number = 200) {
 
     (async () => {
       try {
-        const mod: any = await import('expo-sensors');
-        Magnetometer = mod?.Magnetometer as MagnetometerType;
-        if (!Magnetometer) return;
+        // Prefer deep import to avoid pulling in Pedometer on platforms/dev clients that lack it
+        try {
+          const m: any = await import('expo-sensors/build/Magnetometer');
+          Magnetometer = (m?.Magnetometer || m?.default) as MagnetometerType | null;
+        } catch {}
+        // Fallback to package index if deep import not available
+        if (!Magnetometer) {
+          const mod: any = await import('expo-sensors');
+          Magnetometer = (mod?.Magnetometer || null) as MagnetometerType | null;
+        }
+        if (!Magnetometer) {
+          setAvailable(false);
+          return;
+        }
         setAvailable(true);
         try { Magnetometer.setUpdateInterval(intervalMs); } catch {}
         sub = Magnetometer.addListener((data) => {
@@ -31,6 +42,7 @@ export function useSensorHeading(intervalMs: number = 200) {
           setHeadingDeg(deg);
         });
       } catch {
+        // If anything fails (e.g., module missing), mark as unavailable but do not crash
         setAvailable(false);
       }
     })();
@@ -43,4 +55,3 @@ export function useSensorHeading(intervalMs: number = 200) {
 
   return { headingDeg, available } as const;
 }
-

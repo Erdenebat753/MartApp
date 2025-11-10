@@ -43,11 +43,21 @@ function SceneWithHeading({ onDevicePose, onTrackingState }: Props) {
 }
 
 export default function ARTestScreen({ onDevicePose, onTrackingState, alignment = "GravityAndHeading" }: Props) {
+  const sceneFn = React.useCallback(
+    () => (
+      <SceneWithHeading
+        onDevicePose={onDevicePose}
+        onTrackingState={onTrackingState}
+      />
+    ),
+    [onDevicePose, onTrackingState]
+  );
+  const initialScene = React.useMemo(() => ({ scene: sceneFn }), [sceneFn]);
   return (
     <ViroARSceneNavigator
       autofocus={true}
       worldAlignment={alignment}
-      initialScene={{ scene: () => <SceneWithHeading onDevicePose={onDevicePose} onTrackingState={onTrackingState} /> }}
+      initialScene={initialScene}
       style={{ flex: 1 }}
     />
   );

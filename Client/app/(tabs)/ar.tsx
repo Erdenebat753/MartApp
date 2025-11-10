@@ -1,11 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { View, Dimensions, Text, TextInput, Pressable, ScrollView, Alert } from "react-native";
+import {
+  View,
+  Dimensions,
+  Text,
+  TextInput,
+  Pressable,
+  ScrollView,
+  Alert,
+} from "react-native";
+import { useIsFocused } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ARTestScreen from "../../components/ARTestScreen";
 import Map2D, { Point } from "../../components/Map2D";
 import IndoorMap from "../../components/mapbox/IndoorMap";
 import { MAPBOX_TOKEN } from "../../constants/mapbox";
 import { useItems } from "../../hooks/useItems";
+import { useCategories } from "../../hooks/useCategories";
 import { useSlamStart } from "../../hooks/useSlamStart";
 import { useSensorHeading } from "../../hooks/useSensorHeading";
 import { useRouteCompute } from "../../hooks/useRoute";
@@ -19,26 +29,96 @@ export default function ARTab() {
   const half = Math.floor(height * 0.5);
   const { mart, mapWidthPx, mapHeightPx, imageSource } = useMartMeta();
   const { items } = useItems(mart?.id);
+  const { categories } = useCategories(mart?.id);
   const [slamStart, setSlamStart] = useState<Point | null>(null);
   const [headingBase, setHeadingBase] = useState<number>(0);
   const [user, setUser] = useState<Point | null>(null);
   const [deviceYaw0, setDeviceYaw0] = useState<number | null>(null);
   const [deviceYaw, setDeviceYaw] = useState<number>(0);
-  const [camStart, setCamStart] = useState<[number,number,number] | null>(null);
-  const [camNow, setCamNow] = useState<[number,number,number] | null>(null);
+  const [camStart, setCamStart] = useState<[number, number, number] | null>(
+    null
+  );
+  const [camNow, setCamNow] = useState<[number, number, number] | null>(null);
   const [useYawOnly, setUseYawOnly] = useState<boolean>(false);
-  const [alignment, setAlignment] = useState<"Gravity"|"GravityAndHeading"|"Camera">("GravityAndHeading");
+  const [alignment, setAlignment] = useState<
+    "Gravity" | "GravityAndHeading" | "Camera"
+  >("GravityAndHeading");
   const [useSensor, setUseSensor] = useState<boolean>(false);
-  const { headingDeg: sensorHeading, available: sensorAvailable } = useSensorHeading(150);
+  const { headingDeg: sensorHeading, available: sensorAvailable } =
+    useSensorHeading(150);
   const [ppm, setPpm] = useState<number>(PIXELS_PER_METER);
   const [transUseCurrentYaw, setTransUseCurrentYaw] = useState<boolean>(false);
+  const yawSmoothRef = React.useRef<number>(0);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const { route, compute, clear } = useRouteCompute();
+  const [interactiveMap, setInteractiveMap] = useState<boolean>(true);
+  const [autoZoom, setAutoZoom] = useState<boolean>(true);
+  const [routeIdx, setRouteIdx] = useState<number>(0);
+  const [arrived, setArrived] = useState<boolean>(false);
+  const WAYPOINT_RADIUS_PX = 100; // 1m = 100px zone
   const [debug, setDebug] = useState(false);
+  const [invertYaw180, setInvertYaw180] = useState(false);
+  const lastPoseTsRef = React.useRef<number>(0);
+  // Keep dynamic values in refs so the AR callback can be stable
+  const useSensorRef = React.useRef(useSensor);
+  const slamStartRef = React.useRef(slamStart);
+  const camStartRef = React.useRef(camStart);
+  const deviceYaw0Ref = React.useRef(deviceYaw0);
+  const sensorHeadingRef = React.useRef(sensorHeading);
+  const trackingOKRef = React.useRef(true);
+  const sensorAvailableRef = React.useRef(sensorAvailable);
 
-  // Kick off initial SLAM fetch (no-op if already fetched by poller)
-  useSlamStart(items, () => {}, () => {});
+  React.useEffect(() => { useSensorRef.current = useSensor; });
+  React.useEffect(() => { slamStartRef.current = slamStart; });
+  React.useEffect(() => { camStartRef.current = camStart; });
+  React.useEffect(() => { deviceYaw0Ref.current = deviceYaw0; });
+  React.useEffect(() => { sensorHeadingRef.current = sensorHeading; });
+  React.useEffect(() => { sensorAvailableRef.current = sensorAvailable; });
+
+  // Stable handlers (top-level hooks, not inside conditionals/JSX)
+  const handleDevicePose = React.useCallback((pos: [number, number, number], yawDeg: number) => {
+    if (!trackingOKRef.current) return;
+    const now = Date.now();
+    if (now - lastPoseTsRef.current < 33) return; // throttle ~30fps
+    lastPoseTsRef.current = now;
+    if (!useSensorRef.current) setDeviceYaw(yawDeg);
+    setCamNow(pos);
+    if (slamStartRef.current && !camStartRef.current) setCamStart(pos);
+    if (deviceYaw0Ref.current === null) {
+      const useSensorYaw = useSensorRef.current && sensorAvailableRef.current;
+      setDeviceYaw0(useSensorYaw ? sensorHeadingRef.current : yawDeg);
+    }
+  }, []);
+
+  const handleTrackingState = React.useCallback((st: string, rsn: string) => {
+    try {
+      const s = `${st} ${rsn}`.toLowerCase();
+      // Default optimistic: tracking is OK unless explicit negative markers appear
+      let ok = true;
+      const negatives = [
+        "limited",
+        "relocal",
+        "insufficient",
+        "excessive",
+        "unavailable",
+        "not available",
+        "paused",
+        "stopped",
+      ];
+      for (const n of negatives) {
+        if (s.includes(n)) { ok = false; break; }
+      }
+      trackingOKRef.current = ok;
+    } catch {
+      trackingOKRef.current = true;
+    }
+    if (debug) console.log("[AR tracking]", st, rsn, "ok=", trackingOKRef.current);
+  }, [debug]);
+
+  const isFocused = useIsFocused();
+
+  // Kick off initial SLAM fetch once with real setters below
 
   const normalizeDeg = (d: number) => {
     let x = d % 360;
@@ -46,18 +126,35 @@ export default function ARTab() {
     return x;
   };
 
+
   // Use SLAM start once, then update by Viro camera deltas
-  useSlamStart(items, (p)=>{
+  const onSlamUser = React.useCallback((p: Point) => {
     setSlamStart(p);
     setUser(p);
-    // reset camera anchor on new SLAM start
     setCamStart(null);
     setDeviceYaw0(null);
-  }, (deg)=>{
+  }, []);
+  const onSlamHeading = React.useCallback((deg: number) => {
     setHeadingBase(Number(deg || 0));
-  });
+  }, []);
+  useSlamStart(items, onSlamUser, onSlamHeading);
 
-  const yawUsed = useSensor ? sensorHeading : deviceYaw;
+  // Smooth yaw from AR when not using sensor (ref only, no state update)
+  React.useEffect(() => {
+    if (!useSensor) {
+      const prev = yawSmoothRef.current;
+      // move prev → deviceYaw via smallest angular difference
+      let d = ((deviceYaw - prev + 540) % 360) - 180;
+      const next = prev + d * 0.1; // alpha (smoother)
+      // normalize 0..360
+      let norm = next % 360;
+      if (norm < 0) norm += 360;
+      yawSmoothRef.current = norm;
+    }
+  }, [deviceYaw, useSensor]);
+
+  const yawRaw = useSensor && sensorAvailable ? sensorHeading : yawSmoothRef.current;
+  const yawUsed = invertYaw180 ? normalizeDeg(yawRaw + 180) : yawRaw;
   const effectiveHeading = (() => {
     const base = Number(headingBase || 0);
     const d0 = deviceYaw0 ?? yawUsed;
@@ -79,19 +176,45 @@ export default function ARTab() {
     // compensate AR forward (-Z): use -dz so forward increases +Y in up-coords
     const vx = dx;
     const vy = -dz;
-    const yawRef = transUseCurrentYaw ? yawUsed : (deviceYaw0 ?? yawUsed);
-    const theta = (headingBase - yawRef) * Math.PI / 180;
-    const rx =  Math.cos(theta) * vx - Math.sin(theta) * vy;
-    const ry =  Math.sin(theta) * vx + Math.cos(theta) * vy; // up-positive
+    const yawRef = transUseCurrentYaw ? yawUsed : deviceYaw0 ?? yawUsed;
+    const theta = ((headingBase - yawRef) * Math.PI) / 180;
+    const rx = Math.cos(theta) * vx - Math.sin(theta) * vy;
+    const ry = Math.sin(theta) * vx + Math.cos(theta) * vy; // up-positive
     const px = rx * ppm;
     const pyDown = -ry * ppm; // convert up->down for image coords
-    setUser({ x: slamStart.x + px, y: slamStart.y + pyDown });
-  }, [slamStart, camStart, camNow, headingBase, deviceYaw0]);
+    // Dual deadzone: require small both in meters and pixels to ignore
+    const moveM = Math.hypot(dx, dz);
+    const movePx = Math.hypot(px, pyDown);
+    if (moveM < 0.008 && movePx < 1.0) return; // <0.8cm AND <1px => ignore
+    const target = { x: slamStart.x + px, y: slamStart.y + pyDown };
+    const beta = 0.7; // higher => smoother (but laggier)
+    setUser((prev) =>
+      prev
+        ? { x: prev.x * beta + target.x * (1 - beta), y: prev.y * beta + target.y * (1 - beta) }
+        : target
+    );
+  }, [
+    slamStart,
+    camStart,
+    camNow,
+    headingBase,
+    deviceYaw0,
+    ppm,
+    transUseCurrentYaw,
+    yawUsed,
+  ]);
 
   const doSearch = () => {
     const q = query.trim().toLowerCase();
-    if (!q) { setResults([]); return; }
-    setResults((items || []).filter(it => (it.name || "").toLowerCase().includes(q)).slice(0, 10));
+    if (!q) {
+      setResults([]);
+      return;
+    }
+    setResults(
+      (items || [])
+        .filter((it) => (it.name || "").toLowerCase().includes(q))
+        .slice(0, 10)
+    );
   };
 
   const navigateTo = (it: Item) => {
@@ -99,181 +222,526 @@ export default function ARTab() {
       Alert.alert("No location", "Current location is not set yet.");
       return;
     }
-    Alert.alert(
-      "Start navigation",
-      `Navigate to \"${it.name}\"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Start",
-          style: "default",
-          onPress: async () => {
-            try {
-              await compute(user, { x: it.x, y: it.y });
-              setResults([]);
-            } catch {}
-          },
+    Alert.alert("Start navigation", `Navigate to \"${it.name}\"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Start",
+        style: "default",
+        onPress: async () => {
+          try {
+            await compute(user, { x: it.x, y: it.y });
+            setResults([]);
+          } catch {}
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const useMapbox = !!MAPBOX_TOKEN;
 
+  // Reset waypoint index when a new route comes in
+  useEffect(() => {
+    if (route && route.length > 0) {
+      setRouteIdx(0);
+      setArrived(false);
+    } else {
+      setRouteIdx(0);
+      setArrived(false);
+    }
+  }, [route]);
+
+  // Advance waypoint when user enters the zone around current waypoint
+  useEffect(() => {
+    if (!user || !route || route.length === 0) return;
+    let idx = routeIdx;
+    // Guard index within bounds
+    if (idx < 0) idx = 0;
+    if (idx >= route.length) idx = route.length - 1;
+
+    let advanced = false;
+    while (idx < route.length) {
+      const wp = route[idx];
+      const dx = user.x - wp.x;
+      const dy = user.y - wp.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= WAYPOINT_RADIUS_PX) {
+        idx += 1;
+        advanced = true;
+        continue;
+      }
+      break;
+    }
+
+    if (idx >= route.length) {
+      if (!arrived) setArrived(true);
+      setRouteIdx(route.length - 1);
+    } else if (advanced) {
+      setRouteIdx(idx);
+    }
+  }, [user, route, routeIdx, arrived]);
+
+  // Remaining distance (m) and ETA (s)
+  const remaining = React.useMemo(() => {
+    if (!route || route.length === 0) return { meters: 0, seconds: 0 } as const;
+    const idx = Math.min(routeIdx, route.length - 1);
+    let sumPx = 0;
+    if (user) {
+      const p = route[idx];
+      sumPx += Math.hypot(p.x - user.x, p.y - user.y);
+    }
+    for (let i = idx; i < route.length - 1; i++) {
+      const a = route[i];
+      const b = route[i + 1];
+      sumPx += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    const meters = sumPx / ppm;
+    const speed = 1.2; // m/s approx indoor walking
+    const seconds = meters / speed;
+    return { meters, seconds } as const;
+  }, [route, routeIdx, user, ppm]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#000" }} edges={["top"]}>
       <View style={{ flex: 1 }}>
-      {/* TOP: AR */}
-      <View style={{ height: half }}>
-        <ARTestScreen alignment={alignment} onDevicePose={(pos, yawDeg) => {
-          if (!useSensor) setDeviceYaw(yawDeg);
-          setCamNow(pos);
-          if (slamStart && !camStart) setCamStart(pos);
-          if (deviceYaw0 === null) setDeviceYaw0(useSensor ? sensorHeading : yawDeg);
-        }} onTrackingState={(st, rsn)=>{
-          if (debug) console.log('[AR tracking]', st, rsn);
-        }} />
-        {/* Debug toggle */}
-        <View style={{ position: 'absolute', right: 8, top: 8, gap: 6, zIndex: 1000, elevation: 1000 }}>
-          <Pressable onPress={() => setDebug((v)=>!v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginBottom: 6 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>{debug ? 'Debug: ON' : 'Debug: OFF'}</Text>
-          </Pressable>
-          <Pressable onPress={() => setUseYawOnly(v=>!v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>{useYawOnly ? 'Heading Mode: YAW' : 'Heading Mode: SLAM+YAW'}</Text>
-          </Pressable>
-          <Pressable onPress={() => setUseSensor(v=>!v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>Sensor: {useSensor ? (sensorAvailable ? 'ON' : 'N/A') : 'OFF'}</Text>
-          </Pressable>
-          <Pressable onPress={() => setAlignment(a=> a==="GravityAndHeading"?"Camera": a==="Camera"?"Gravity":"GravityAndHeading")} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>Align: {alignment}</Text>
-          </Pressable>
-          <Pressable onPress={() => { setCamStart(camNow); setDeviceYaw0(deviceYaw); }} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>Reset Cam Anchor</Text>
-          </Pressable>
-          <Pressable onPress={() => { 
-            // set base heading to current effective heading, zero future delta
-            // after this, effectiveHeading remains visually same but base value updates
-            const eff = effectiveHeading;
-            setHeadingBase(eff);
-            setDeviceYaw0(deviceYaw);
-          }} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>Set Base = Now</Text>
-          </Pressable>
-          {debug && (
-            <View style={{ backgroundColor: '#000000CC', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, zIndex: 1001, elevation: 1001 }}>
-              <Text style={{ color: '#fff', fontSize: 11 }}>yaw0:{deviceYaw0===null?'-':deviceYaw0.toFixed(1)} yaw:{yawUsed.toFixed(1)} sens:{sensorAvailable?sensorHeading.toFixed(1):'N/A'}</Text>
-              <Text style={{ color: '#fff', fontSize: 11 }}>headBase:{headingBase.toFixed(1)} eff:{effectiveHeading.toFixed(1)} map:{headingForMap.toFixed(1)}</Text>
-              <Text style={{ color: '#fff', fontSize: 11 }}>cam0:{camStart?`${camStart[0].toFixed(2)},${camStart[1].toFixed(2)},${camStart[2].toFixed(2)}`:'-'}</Text>
-              <Text style={{ color: '#fff', fontSize: 11 }}>cam :{camNow?`${camNow[0].toFixed(2)},${camNow[1].toFixed(2)},${camNow[2].toFixed(2)}`:'-'}</Text>
-              {camStart && camNow && (
-                <Text style={{ color: '#fff', fontSize: 11 }}>
-                  d:(x:{(camNow[0]-camStart[0]).toFixed(2)} z:{(camNow[2]-camStart[2]).toFixed(2)}) ppm:{ppm}
-                </Text>
-              )}
-              <Text style={{ color: '#fff', fontSize: 11 }}>user:{user?`${user.x.toFixed(1)},${user.y.toFixed(1)}`:'-'}</Text>
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', gap: 6 }}>
-            <Pressable onPress={() => setPpm(p=>Math.max(10, p-20))} style={{ backgroundColor: '#00000088', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
-              <Text style={{ color: '#fff', fontSize: 12 }}>PPM -</Text>
-            </Pressable>
-            <Pressable onPress={() => setPpm(p=>p+20)} style={{ backgroundColor: '#00000088', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
-              <Text style={{ color: '#fff', fontSize: 12 }}>PPM +</Text>
-            </Pressable>
-            <Pressable onPress={() => setTransUseCurrentYaw(v=>!v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 }}>
-              <Text style={{ color: '#fff', fontSize: 12 }}>Trans Rot: {transUseCurrentYaw ? 'CURRENT' : 'BASE'}</Text>
-            </Pressable>
-          </View>
-          <Pressable onPress={async ()=>{
-            try {
-              const r = await fetch(`${API_BASE}/api/slam`);
-              const j = await r.json();
-              if (j && j.x != null && j.y != null) {
-                const p = { x: Number(j.x), y: Number(j.y) };
-                setSlamStart(p);
-                setUser(p);
-                setHeadingBase(Number(j.heading_deg || 0));
-                setCamStart(null);
-                setDeviceYaw0(null);
-              }
-            } catch (e) {}
-          }} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>Recenter SLAM</Text>
-          </Pressable>
-          <Pressable onPress={()=> clear()} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 12 }}>Clear Route</Text>
-          </Pressable>
-        </View>
-        {/* Overlay search */}
-        <View style={{ position: "absolute", left: 8, right: 8, top: 8 }}>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search product"
-              placeholderTextColor={"#aaa"}
-              onSubmitEditing={doSearch}
-              style={{ flex: 1, padding: 10, backgroundColor: "#111", color: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#333" }}
+        {/* TOP: AR */}
+        <View style={{ height: half }}>
+          {isFocused ? (
+            <ARTestScreen
+              alignment={alignment}
+              onDevicePose={handleDevicePose}
+              onTrackingState={handleTrackingState}
             />
-            <Pressable onPress={doSearch} style={{ backgroundColor: "#1e90ff", paddingHorizontal: 12, borderRadius: 8, justifyContent: "center" }}>
-              <Text style={{ color: "#fff", fontWeight: "600" }}>Search</Text>
+          ) : (
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: "#000",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: "#888" }}>AR paused (switched tab)</Text>
+            </View>
+          )}
+
+          {/* Debug toggle */}
+          <View
+            style={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              gap: 6,
+              zIndex: 1000,
+              elevation: 1000,
+            }}
+          >
+            <Pressable
+              onPress={() => setDebug((v) => !v)}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+                marginBottom: 6,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                {debug ? "Debug: ON" : "Debug: OFF"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setUseYawOnly((v) => !v)}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                {useYawOnly ? "Heading Mode: YAW" : "Heading Mode: SLAM+YAW"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (!sensorAvailable) {
+                  Alert.alert(
+                    "Sensor unavailable",
+                    "Magnetometer is not available. Use AR yaw or install expo-sensors and run on a physical device."
+                  );
+                  setUseSensor(false);
+                  return;
+                }
+                setUseSensor((v) => !v);
+              }}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                Sensor: {useSensor ? (sensorAvailable ? "ON" : "N/A") : "OFF"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setInvertYaw180((v) => !v)}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                Yaw Inv (180°): {invertYaw180 ? "ON" : "OFF"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                setAlignment((a) =>
+                  a === "GravityAndHeading"
+                    ? "Camera"
+                    : a === "Camera"
+                    ? "Gravity"
+                    : "GravityAndHeading"
+                )
+              }
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                Align: {alignment}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setCamStart(camNow);
+                setDeviceYaw0(deviceYaw);
+              }}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                Reset Cam Anchor
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                // set base heading to current effective heading, zero future delta
+                // after this, effectiveHeading remains visually same but base value updates
+                const eff = effectiveHeading;
+                setHeadingBase(eff);
+                setDeviceYaw0(deviceYaw);
+              }}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                Set Base = Now
+              </Text>
+            </Pressable>
+            {debug && (
+              <View
+                style={{
+                  backgroundColor: "#000000CC",
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  zIndex: 1001,
+                  elevation: 1001,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  yaw0:{deviceYaw0 === null ? "-" : deviceYaw0.toFixed(1)} yaw:
+                  {yawUsed.toFixed(1)} sens:
+                  {sensorAvailable ? sensorHeading.toFixed(1) : "N/A"}
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  headBase:{headingBase.toFixed(1)} eff:
+                  {effectiveHeading.toFixed(1)} map:{headingForMap.toFixed(1)}
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  cam0:
+                  {camStart
+                    ? `${camStart[0].toFixed(2)},${camStart[1].toFixed(
+                        2
+                      )},${camStart[2].toFixed(2)}`
+                    : "-"}
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  cam :
+                  {camNow
+                    ? `${camNow[0].toFixed(2)},${camNow[1].toFixed(
+                        2
+                      )},${camNow[2].toFixed(2)}`
+                    : "-"}
+                </Text>
+                {camStart && camNow && (
+                  <Text style={{ color: "#fff", fontSize: 11 }}>
+                    d:(x:{(camNow[0] - camStart[0]).toFixed(2)} z:
+                    {(camNow[2] - camStart[2]).toFixed(2)}) ppm:{ppm}
+                  </Text>
+                )}
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  user:
+                  {user ? `${user.x.toFixed(1)},${user.y.toFixed(1)}` : "-"}
+                </Text>
+              </View>
+            )}
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              <Pressable
+                onPress={() => setPpm((p) => Math.max(10, p - 20))}
+                style={{
+                  backgroundColor: "#00000088",
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>PPM -</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setPpm((p) => p + 20)}
+                style={{
+                  backgroundColor: "#00000088",
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>PPM +</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setTransUseCurrentYaw((v) => !v)}
+                style={{
+                  backgroundColor: "#00000088",
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>
+                  Trans Rot: {transUseCurrentYaw ? "CURRENT" : "BASE"}
+                </Text>
+              </Pressable>
+            </View>
+            <Pressable
+              onPress={async () => {
+                try {
+                  const r = await fetch(`${API_BASE}/api/slam`);
+                  const j = await r.json();
+                  if (j && j.x != null && j.y != null) {
+                    const p = { x: Number(j.x), y: Number(j.y) };
+                    setSlamStart(p);
+                    setUser(p);
+                    setHeadingBase(Number(j.heading_deg || 0));
+                    setCamStart(null);
+                    setDeviceYaw0(null);
+                  }
+                } catch {}
+              }}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>Recenter SLAM</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => clear()}
+              style={{
+                backgroundColor: "#00000088",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>Clear Route</Text>
             </Pressable>
           </View>
-          {results.length > 0 && (
-            <View style={{ backgroundColor: "#000000cc", borderRadius: 8, padding: 8, marginTop: 6, maxHeight: half - 80 }}>
-              <ScrollView>
-                {results.map((it) => (
-                  <Pressable key={it.id} onPress={() => navigateTo(it)} style={{ paddingVertical: 6 }}>
-                    <Text style={{ color: "#fff" }}>{it.name} {it.price != null ? `• ₩${it.price}` : ""}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+          {/* Overlay search */}
+          <View style={{ position: "absolute", left: 8, right: 8, top: 8 }}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search product"
+                placeholderTextColor={"#aaa"}
+                onSubmitEditing={doSearch}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  backgroundColor: "#111",
+                  color: "#fff",
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: "#333",
+                }}
+              />
+              <Pressable
+                onPress={doSearch}
+                style={{
+                  backgroundColor: "#1e90ff",
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "600" }}>Search</Text>
+              </Pressable>
             </View>
-          )}
-          {results.length === 0 && query.trim().length > 0 && (
-            <View style={{ backgroundColor: "#000000aa", borderRadius: 8, padding: 8, marginTop: 6 }}>
-              <Text style={{ color: "#fff" }}>No results.</Text>
-            </View>
-          )}
+            {results.length > 0 && (
+              <View
+                style={{
+                  backgroundColor: "#000000cc",
+                  borderRadius: 8,
+                  padding: 8,
+                  marginTop: 6,
+                  maxHeight: half - 80,
+                }}
+              >
+                <ScrollView>
+                  {results.map((it) => (
+                    <Pressable
+                      key={it.id}
+                      onPress={() => navigateTo(it)}
+                      style={{ paddingVertical: 6 }}
+                    >
+                      <Text style={{ color: "#fff" }}>
+                        {it.name} {it.price != null ? `• ₩${it.price}` : ""}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+            {results.length === 0 && query.trim().length > 0 && (
+              <View
+                style={{
+                  backgroundColor: "#000000aa",
+                  borderRadius: 8,
+                  padding: 8,
+                  marginTop: 6,
+                }}
+              >
+                <Text style={{ color: "#fff" }}>No results.</Text>
+              </View>
+            )}
+          </View>
         </View>
-      </View>
 
-      {/* BOTTOM: 2D Map */}
-      {useMapbox ? (
-        <IndoorMap
-          width={width}
-          height={half}
-          mapWidthPx={mapWidthPx || 675}
-          mapHeightPx={mapHeightPx || 878}
-          backgroundSource={(imageSource as any)?.uri}
-          polyline={route}
-          user={user || undefined}
-          headingDeg={headingForMap}
-          debug={debug}
-          onLongPress={(_p) => { /* disabled manual set while SLAM live */ }}
-        />
-      ) : (
-        <Map2D
-          width={width}
-          height={half}
-          mapWidthPx={mapWidthPx || 675}
-          mapHeightPx={mapHeightPx || 878}
-          backgroundSource={imageSource}
-          polyline={route}
-          user={user}
-          headingDeg={headingForMap}
-          headingInvert={false}
-          debug={debug}
-          onLongPress={(_p) => { /* disabled manual set while SLAM live */ }}
-        />
-      )}
-      {!imageSource && (
-        <View style={{ position: 'absolute', bottom: 8, left: 8, right: 8, backgroundColor: '#550000aa', padding: 8, borderRadius: 8 }}>
-          <Text style={{ color: '#fff', fontSize: 12 }}>
-            No map image configured. Upload a map for this mart in the Admin dashboard or set EXPO_PUBLIC_API_BASE correctly.
-          </Text>
+        {/* BOTTOM: 2D Map with overlay */}
+        <View style={{ height: half, position: 'relative' }}>
+          {useMapbox ? (
+              <IndoorMap
+                width={width}
+                height={half}
+                mapWidthPx={mapWidthPx || 675}
+                mapHeightPx={mapHeightPx || 878}
+                backgroundSource={(imageSource as any)?.uri}
+                polyline={(route && route.length)
+                  ? (() => {
+                      const idx = Math.min(routeIdx, route.length - 1);
+                      const rem = route.slice(idx);
+                      return user ? [{ x: user.x, y: user.y }, ...rem] : rem;
+                    })()
+                  : route}
+                user={user || undefined}
+                headingDeg={headingForMap}
+                debug={debug}
+                interactive={interactiveMap}
+                autoZoom={autoZoom}
+                onLongPress={(p) => {
+                  if (!user) {
+                    Alert.alert("No location", "Current location is not set yet.");
+                    return;
+                  }
+                  compute(user, { x: p.x, y: p.y });
+                }}
+                categories={categories?.map(c => ({ name: c.name, polygon: c.polygon, color: c.color }))}
+              />
+          ) : (
+            <Map2D
+              width={width}
+              height={half}
+              mapWidthPx={mapWidthPx || 675}
+              mapHeightPx={mapHeightPx || 878}
+              backgroundSource={imageSource}
+              polyline={(route && route.length)
+                ? (() => {
+                    const idx = Math.min(routeIdx, route.length - 1);
+                    const rem = route.slice(idx);
+                    return user ? [{ x: user.x, y: user.y }, ...rem] : rem;
+                  })()
+                : route}
+              user={user}
+              headingDeg={headingForMap}
+              headingInvert={false}
+              roundMask
+              rotateMap
+              centerOnUser
+              debug={debug}
+              categories={categories?.map(c => ({ name: c.name, polygon: c.polygon, color: c.color }))}
+              onLongPress={(p) => {
+                if (!user) {
+                  Alert.alert("No location", "Current location is not set yet.");
+                  return;
+                }
+                compute(user, { x: p.x, y: p.y });
+              }}
+            />
+          )}
+          {/* Overlay: remaining distance + ETA and controls */}
+          <View style={{ position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', gap: 8, justifyContent: 'space-between' }} pointerEvents="box-none">
+            <View style={{ backgroundColor: '#000000aa', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontSize: 12 }}>
+                Rem: {remaining.meters.toFixed(1)} m  ETA: {Math.floor(remaining.seconds/60)}m {Math.round(remaining.seconds%60)}s
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <Pressable onPress={() => setInteractiveMap(v => !v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+                <Text style={{ color: '#fff', fontSize: 12 }}>Gestures: {interactiveMap ? 'ON' : 'OFF'}</Text>
+              </Pressable>
+              <Pressable onPress={() => setAutoZoom(v => !v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+                <Text style={{ color: '#fff', fontSize: 12 }}>AutoZoom: {autoZoom ? 'ON' : 'OFF'}</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
-      )}
+        {!imageSource && (
+          <View
+            style={{
+              position: "absolute",
+              bottom: 8,
+              left: 8,
+              right: 8,
+              backgroundColor: "#550000aa",
+              padding: 8,
+              borderRadius: 8,
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 12 }}>
+              No map image configured. Upload a map for this mart in the Admin
+              dashboard or set EXPO_PUBLIC_API_BASE correctly.
+            </Text>
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );

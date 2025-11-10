@@ -36,6 +36,12 @@ class Settings(BaseSettings):
         # Fallback: comma-separated
         return [p.strip() for p in s.split(",") if p.strip()]
 
+    # Simple admin auth for AdminDashboard
+    ADMIN_USERNAME: Optional[str] = Field(default="admin")
+    ADMIN_PASSWORD: Optional[str] = Field(default=None)
+    JWT_SECRET: Optional[str] = Field(default="change-me-secret")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24)  # 24h
+
     # Resolve env file: prefer .env, fall back to .env.sample (both relative to this file)
     _base_dir = os.path.dirname(os.path.abspath(__file__))
     _env_primary = os.path.join(_base_dir, ".env")

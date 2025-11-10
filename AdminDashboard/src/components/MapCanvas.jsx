@@ -13,6 +13,9 @@ export default function MapCanvas({
   headingPickMode,
   headingArrow,
   slamStart,
+  categories = [],
+  categoryPoints = [],
+  categoryMode = false,
   showGrid = false,
   showLabels = false,
   backgroundImageUrl = "/Frame1.png",
@@ -72,6 +75,21 @@ export default function MapCanvas({
         ))}
       </svg>
 
+      {/* Categories (filled polygons) */}
+      <svg width={displayWidth} height={effHeight} style={{ position: "absolute", left: 0, top: 0, zIndex: 5, pointerEvents: "none" }}>
+        {categories.map((c) => (
+          <polygon
+            key={c.id}
+            points={polylineStr(c.polygon || [])}
+            fill={c.color || "#f472b6"}
+            stroke={c.color || "#f472b6"}
+            strokeWidth={2.5}
+            fillOpacity={0.35}
+            opacity={0.95}
+          />
+        ))}
+      </svg>
+
       {/* SLAM start marker (purple) */}
       {slamStart && (
         <svg width={displayWidth} height={effHeight} style={{ position: "absolute", left: 0, top: 0, zIndex: 6, pointerEvents: "none" }}>
@@ -122,10 +140,27 @@ export default function MapCanvas({
 
       {/* Drawing overlay (yellow) */}
       <svg width={displayWidth} height={effHeight} style={{ position: "absolute", left: 0, top: 0, zIndex: 4, pointerEvents: "none" }}>
-        {drawPoints?.length >= 2 && (
+        {drawMode && drawPoints?.length >= 2 && (
           <polyline points={polylineStr(drawPoints)} fill="none" stroke="#ffd400" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
         )}
-        {drawPoints?.map((p, idx) => { const dp = toDisplay(p); return (<circle key={idx} cx={dp.x} cy={dp.y} r={3} fill="#ffd400" stroke="#000" strokeWidth={1} />); })}
+        {drawMode && drawPoints?.map((p, idx) => { const dp = toDisplay(p); return (<circle key={idx} cx={dp.x} cy={dp.y} r={3} fill="#ffd400" stroke="#000" strokeWidth={1} />); })}
+      </svg>
+
+      {/* Category drawing overlay (pink) */}
+      <svg width={displayWidth} height={effHeight} style={{ position: "absolute", left: 0, top: 0, zIndex: 9, pointerEvents: "none" }}>
+        {categoryMode && categoryPoints?.length >= 2 && (
+          <polyline points={polylineStr(categoryPoints)} fill="none" stroke="#f472b6" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+        )}
+        {categoryMode && categoryPoints?.length >= 3 && (
+          <polygon
+            points={polylineStr([...categoryPoints, categoryPoints[0]])}
+            fill="#f472b6"
+            fillOpacity={0.18}
+            stroke="#f472b6"
+            strokeWidth={2}
+          />
+        )}
+        {categoryMode && categoryPoints?.map((p, idx) => { const dp = toDisplay(p); return (<circle key={idx} cx={dp.x} cy={dp.y} r={4} fill="#f472b6" stroke="#000" strokeWidth={1} />); })}
       </svg>
 
       {/* Selected segment highlight */}

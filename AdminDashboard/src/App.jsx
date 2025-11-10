@@ -7,6 +7,8 @@ import ItemsPage from "./pages/Items";
 import ThreeDPage from "./pages/ThreeD";
 import SettingsPage from "./pages/Settings";
 import MartPage from "./pages/Mart";
+import Login from "./pages/Login";
+import { getToken, clearToken } from "./auth";
 
 function useHashRoute(defaultRoute = "home") {
   const [route, setRoute] = useState(() => (window.location.hash.replace(/^#/, "") || defaultRoute));
@@ -19,6 +21,20 @@ function useHashRoute(defaultRoute = "home") {
 }
 
 function App() {
+  const [authed, setAuthed] = useState(() => !!getToken());
+
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === "admin_token") setAuthed(!!e.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  if (!authed) {
+    return <Login onLoggedIn={() => setAuthed(true)} />;
+  }
+
   const [route] = useHashRoute("home");
   const content = useMemo(() => {
     switch (route) {
@@ -41,7 +57,7 @@ function App() {
   }, [route]);
 
   return (
-    <AdminLayout route={route}>
+    <AdminLayout route={route} onLogout={() => { clearToken(); setAuthed(false); }}>
       {content}
     </AdminLayout>
   );

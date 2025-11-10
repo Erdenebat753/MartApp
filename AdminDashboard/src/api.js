@@ -1,11 +1,21 @@
 import { API_BASE } from "./config";
+import { getToken, clearToken } from "./auth";
 
 async function jsonFetch(url, opts = {}) {
+  const token = getToken();
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts.headers || {}),
+    },
     ...opts,
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      clearToken();
+      throw new Error("Unauthorized");
+    }
     const txt = await res.text();
     throw new Error(`HTTP ${res.status}: ${txt}`);
   }
@@ -90,6 +100,32 @@ export async function getSlamStart() {
   return jsonFetch(`${API_BASE}/api/slam`);
 }
 
+// Categories
+export async function getCategories(mart_id) {
+  const qp = mart_id != null ? `?mart_id=${encodeURIComponent(mart_id)}` : "";
+  return jsonFetch(`${API_BASE}/api/categories${qp}`);
+}
+export async function createCategory(cat) {
+  return jsonFetch(`${API_BASE}/api/categories`, {
+    method: "POST",
+    body: JSON.stringify(cat),
+  });
+}
+export async function updateCategory(id, cat) {
+  return jsonFetch(`${API_BASE}/api/categories/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(cat),
+  });
+}
+export async function deleteCategory(id) {
+  const res = await fetch(`${API_BASE}/api/categories/${id}`, { method: "DELETE", headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) } });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt}`);
+  }
+  return true;
+}
+
 // Marts
 export async function getMarts() {
   return jsonFetch(`${API_BASE}/api/marts`);
@@ -116,9 +152,13 @@ export async function updateMart(id, mart) {
 export async function uploadMartImage(id, file) {
   const form = new FormData();
   form.append("file", file);
+  const token = getToken();
   const res = await fetch(`${API_BASE}/api/marts/${id}/map-image`, {
     method: "POST",
     body: form,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   if (!res.ok) {
     const txt = await res.text();
@@ -131,9 +171,13 @@ export async function uploadMartImage(id, file) {
 export async function uploadItemImage(file) {
   const form = new FormData();
   form.append("file", file);
+  const token = getToken();
   const res = await fetch(`${API_BASE}/api/items/upload-image`, {
     method: "POST",
     body: form,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   if (!res.ok) {
     const txt = await res.text();

@@ -5,10 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import {
-  DISPLAY_WIDTH,
-  SNAP_THRESHOLD_PX,
-} from "../config";
+import { DISPLAY_WIDTH, SNAP_THRESHOLD_PX } from "../config";
 import {
   createFreeSegment,
   getSegments,
@@ -17,13 +14,12 @@ import {
   createItem,
   updateItem,
   deleteItem,
-  planRoute,
   deleteSegment,
 } from "../api";
 import { createSlamStart } from "../api";
 import { getSlamStart } from "../api";
-import { chatBot } from "../chatApi";
-import Toolbar from "../components/Toolbar";
+import { getCategories, createCategory } from "../api";
+import EditorSidebar from "../components/EditorSidebar";
 import MapCanvas from "../components/MapCanvas";
 import ItemPanel from "../components/ItemPanel";
 import ChatPanel from "../components/ChatPanel";
@@ -40,6 +36,9 @@ export default function AdminMapPage() {
   const [items, setItems] = useState([]);
   const [drawMode, setDrawMode] = useState(false);
   const [drawPoints, setDrawPoints] = useState([]);
+  const [categoryMode, setCategoryMode] = useState(false);
+  const [categoryPoints, setCategoryPoints] = useState([]);
+  const [categoryName, setCategoryName] = useState("");
 
   const [routeMode, setRouteMode] = useState(false);
   const [routeStart, setRouteStart] = useState(null);
@@ -61,6 +60,7 @@ export default function AdminMapPage() {
     sale_end_at: "",
     description: "",
     heading_deg: "",
+    category_id: null,
   });
 
   const [editMode, setEditMode] = useState(false);
@@ -81,9 +81,14 @@ export default function AdminMapPage() {
   const [showLabels, setShowLabels] = useState(false);
   const [mousePos, setMousePos] = useState(null);
   const { mart } = useMart();
+  const [categories, setCategories] = useState([]);
+  const [viewMode, setViewMode] = useState('all');
 
   const mapWidthPx = useMemo(() => Number(mart?.map_width_px) || null, [mart]);
-  const mapHeightPx = useMemo(() => Number(mart?.map_height_px) || null, [mart]);
+  const mapHeightPx = useMemo(
+    () => Number(mart?.map_height_px) || null,
+    [mart]
+  );
   const displayWidth = DISPLAY_WIDTH;
   const scale = useMemo(() => {
     if (mapWidthPx && mapWidthPx > 0) return displayWidth / mapWidthPx;
@@ -100,40 +105,59 @@ export default function AdminMapPage() {
     if (!u) {
       src = "/Frame1.png";
     } else {
-      src = (typeof u === 'string' && u.startsWith('http')) ? u : `${API_BASE}${u}`;
+      src =
+        typeof u === "string" && u.startsWith("http") ? u : `${API_BASE}${u}`;
     }
     if (mart && src) {
-      const sep = src.includes('?') ? '&' : '?';
+      const sep = src.includes("?") ? "&" : "?";
       src = `${src}${sep}v=${encodeURIComponent(mart.id)}`;
     }
     return src || "/Frame1.png";
   }, [mart]);
 
-  const toDisplay = useCallback(({ x, y }) => {
-    const s = scale || 1;
-    return { x: x * s, y: y * s };
-  }, [scale]);
-  const toMapCoords = useCallback((clientX, clientY, rect) => {
-    const s = scale || 1;
-    const dx = clientX - rect.left;
-    const dy = clientY - rect.top;
-    return { x: dx / s, y: dy / s };
-  }, [scale]);
+  const toDisplay = useCallback(
+    ({ x, y }) => {
+      const s = scale || 1;
+      return { x: x * s, y: y * s };
+    },
+    [scale]
+  );
+  const toMapCoords = useCallback(
+    (clientX, clientY, rect) => {
+      const s = scale || 1;
+      const dx = clientX - rect.left;
+      const dy = clientY - rect.top;
+      return { x: dx / s, y: dy / s };
+    },
+    [scale]
+  );
 
   useEffect(() => {
     (async () => {
       try {
         const data = await getSegments();
         setSegments(data);
-      } catch {}
+      } catch (error) {
+        console.error("Failed to load segments:", error);
+      }
       try {
         const it = await getItems(mart?.id);
         setItems(it);
-      } catch {}
+      } catch (error) {
+        if (process?.env?.NODE_ENV !== 'production') console.warn('getItems failed', error);
+      }
       try {
         const s = await getSlamStart();
         setSlamStart(s);
-      } catch {}
+      } catch (error) {
+        if (process?.env?.NODE_ENV !== 'production') console.warn('getSlamStart failed', error);
+      }
+      try {
+        const cats = await getCategories(mart?.id);
+        setCategories(cats);
+      } catch (error) {
+        if (process?.env?.NODE_ENV !== 'production') console.warn('getCategories failed', error);
+      }
     })();
   }, [mart]);
 
@@ -218,13 +242,18 @@ export default function AdminMapPage() {
       p.x = Math.max(0, Math.min(maxW, p.x));
       p.y = Math.max(0, Math.min(maxH, p.y));
 
-      if (drawMode || routeMode) {
+      if (drawMode || routeMode || categoryMode) {
         const snap = findNearestSnap(p);
         if (snap) p = snap;
       }
 
       if (drawMode) {
         setDrawPoints((prev) => [...prev, p]);
+        return;
+      }
+
+      if (categoryMode) {
+        setCategoryPoints((prev) => [...prev, p]);
         return;
       }
 
@@ -241,15 +270,21 @@ export default function AdminMapPage() {
 
       if (headingPickMode) {
         // Set heading based on click relative to current slam_start item position
-        const isSlam = newItem.type === 'slam_start' || (selectedItem && selectedItem.type === 'slam_start');
+        const isSlam =
+          newItem.type === "slam_start" ||
+          (selectedItem && selectedItem.type === "slam_start");
         if (isSlam) {
           const baseX = Number(newItem.x ?? newItemPos?.x ?? selectedItem?.x);
           const baseY = Number(newItem.y ?? newItemPos?.y ?? selectedItem?.y);
           if (!isNaN(baseX) && !isNaN(baseY)) {
-            const dx = p.x - baseX; const dy = p.y - baseY;
-            let deg = (Math.atan2(dy, dx) * 180 / Math.PI);
+            const dx = p.x - baseX;
+            const dy = p.y - baseY;
+            let deg = (Math.atan2(dy, dx) * 180) / Math.PI;
             if (deg < 0) deg += 360;
-            setNewItem(prev => ({ ...prev, heading_deg: Math.round(deg * 10) / 10 }));
+            setNewItem((prev) => ({
+              ...prev,
+              heading_deg: Math.round(deg * 10) / 10,
+            }));
           }
         }
         setHeadingPickMode(false);
@@ -293,17 +328,21 @@ export default function AdminMapPage() {
             note: it.note || "",
             price: it.price ?? "",
             sale_percent: it.sale_percent ?? "",
-            sale_end_at: it.sale_end_at ? String(it.sale_end_at).slice(0,16) : "",
+            sale_end_at: it.sale_end_at
+              ? String(it.sale_end_at).slice(0, 16)
+              : "",
             description: it.description || "",
             heading_deg: it.heading_deg ?? "",
+            category_id: it.category_id ?? null,
           });
           setNewItemPos({ x: it.x, y: it.y });
         }
         return;
       }
-    },
+  },
     [
       drawMode,
+      categoryMode,
       routeMode,
       routeStart,
       routeEnd,
@@ -313,6 +352,9 @@ export default function AdminMapPage() {
       segments,
       findNearestSnap,
       findNearestItem,
+      headingPickMode,
+      mapWidthPx,
+      mapHeightPx,
     ]
   );
 
@@ -331,12 +373,48 @@ export default function AdminMapPage() {
   const handleComputeRoute = useCallback(async () => {
     if (!routeStart || !routeEnd) return;
     try {
-      const res = await routeByCoords(routeStart, routeEnd, 'astar');
+      const res = await routeByCoords(routeStart, routeEnd, "astar");
       setRoutePolyline(res.polyline || []);
     } catch (e) {
       alert("Route failed: " + (e?.message || e));
     }
   }, [routeStart, routeEnd]);
+
+  const handleSaveCategory = useCallback(async () => {
+    if (!mart?.id) {
+      alert("Select a mart first");
+      return;
+    }
+    if (categoryPoints.length < 3) {
+      alert("At least 3 points");
+      return;
+    }
+    if (!categoryName.trim()) {
+      alert("Enter category name");
+      return;
+    }
+    try {
+      // ensure closed by frontend as well
+      const pts = [...categoryPoints];
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      if (!last || last.x !== first.x || last.y !== first.y) {
+        pts.push({ x: first.x, y: first.y });
+      }
+      await createCategory({
+        mart_id: mart.id,
+        name: categoryName.trim(),
+        polygon: pts,
+      });
+      setCategoryPoints([]);
+      setCategoryName("");
+      const cats = await getCategories(mart.id);
+      setCategories(cats);
+      alert("Category saved");
+    } catch (e) {
+      alert("Save category failed: " + (e?.message || e));
+    }
+  }, [categoryPoints, categoryName, mart?.id]);
 
   const polylineStr = useCallback(
     (pts) => {
@@ -352,17 +430,23 @@ export default function AdminMapPage() {
       return;
     }
     try {
-      if (newItem.type === 'slam_start') {
-        const slam = await createSlamStart({
+      if (newItem.type === "slam_start") {
+        await createSlamStart({
           x: Number(newItem.x ?? newItemPos.x),
           y: Number(newItem.y ?? newItemPos.y),
           z: newItem.z === "" ? null : Number(newItem.z),
-          heading_deg: newItem.heading_deg === "" ? null : Number(newItem.heading_deg),
+          heading_deg:
+            newItem.heading_deg === "" ? null : Number(newItem.heading_deg),
         });
         // reload items so mobile can see slam_start
         const it = await getItems(mart?.id);
         setItems(it);
-        try { const s = await getSlamStart(); setSlamStart(s); } catch {}
+        try {
+          const s = await getSlamStart();
+          setSlamStart(s);
+        } catch (error) {
+          if (process?.env?.NODE_ENV !== 'production') console.warn('getSlamStart failed', error);
+        }
       } else {
         const { heading_deg, ...rest } = newItem;
         const payload = {
@@ -373,13 +457,34 @@ export default function AdminMapPage() {
           z: newItem.z === "" ? null : Number(newItem.z),
           price: newItem.price === "" ? null : Number(newItem.price),
           sale_percent:
-            newItem.sale_percent === "" ? null : parseInt(newItem.sale_percent, 10),
+            newItem.sale_percent === ""
+              ? null
+              : parseInt(newItem.sale_percent, 10),
           sale_end_at: newItem.sale_end_at === "" ? null : newItem.sale_end_at,
-          heading_deg: (heading_deg === "" || heading_deg == null) ? null : Number(heading_deg),
+          heading_deg:
+            heading_deg === "" || heading_deg == null
+              ? null
+              : Number(heading_deg),
         };
+        if (
+          payload.price == null ||
+          payload.price === "" ||
+          isNaN(Number(payload.price))
+        ) {
+          alert("Price is required");
+          return;
+        }
+        if (!payload.image_url || String(payload.image_url).trim() === "") {
+          alert("Image is required");
+          return;
+        }
+        /*
         \n        if (payload.price == null || payload.price === '' || isNaN(Number(payload.price))) { alert('Price is required'); return; }\n        if (!payload.image_url || String(payload.image_url).trim() === '') { alert('Image is required'); return; }
+        */
         const created = await createItem(payload);
-        setItems((prev) => Array.isArray(prev) ? [...prev, created] : [created]);
+        setItems((prev) =>
+          Array.isArray(prev) ? [...prev, created] : [created]
+        );
       }
       setNewItemPos(null);
       setNewItem({
@@ -394,6 +499,7 @@ export default function AdminMapPage() {
         sale_percent: "",
         description: "",
         heading_deg: "",
+        category_id: null,
       });
     } catch (e) {
       alert("Create failed: " + (e?.message || e));
@@ -413,9 +519,24 @@ export default function AdminMapPage() {
       sale_percent:
         newItem.sale_percent === "" ? null : parseInt(newItem.sale_percent, 10),
       sale_end_at: newItem.sale_end_at === "" ? null : newItem.sale_end_at,
-      heading_deg: (heading_deg === "" || heading_deg == null) ? null : Number(heading_deg),
+      heading_deg:
+        heading_deg === "" || heading_deg == null ? null : Number(heading_deg),
     };
+    if (
+      payload.price == null ||
+      payload.price === "" ||
+      isNaN(Number(payload.price))
+    ) {
+      alert("Price is required");
+      return;
+    }
+    if (!payload.image_url || String(payload.image_url).trim() === "") {
+      alert("Image is required");
+      return;
+    }
+    /*
     \n        if (payload.price == null || payload.price === '' || isNaN(Number(payload.price))) { alert('Price is required'); return; }\n        if (!payload.image_url || String(payload.image_url).trim() === '') { alert('Image is required'); return; }
+    */
     try {
       await updateItem(selectedItem.id, payload);
       const it = await getItems(mart?.id);
@@ -504,9 +625,11 @@ export default function AdminMapPage() {
           "Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
       }}
     >
-      <Toolbar
+      <EditorSidebar
         drawMode={drawMode}
         setDrawMode={setDrawMode}
+        categoryMode={categoryMode}
+        setCategoryMode={setCategoryMode}
         routeMode={routeMode}
         setRouteMode={setRouteMode}
         createMode={createMode}
@@ -516,8 +639,13 @@ export default function AdminMapPage() {
         selectSegMode={selectSegMode}
         setSelectSegMode={setSelectSegMode}
         drawPointsCount={drawPoints.length}
+        categoryPointsCount={categoryPoints.length}
         onClearDraw={() => setDrawPoints([])}
+        onClearCategory={() => setCategoryPoints([])}
         onSaveSegment={handleSaveSegment}
+        onSaveCategory={handleSaveCategory}
+        categoryName={categoryName}
+        setCategoryName={setCategoryName}
         routeStart={routeStart}
         routeEnd={routeEnd}
         onClearRoute={() => {
@@ -527,21 +655,25 @@ export default function AdminMapPage() {
         }}
         onComputeRoute={handleComputeRoute}
         onUseSlamStart={() => {
-          const s = items.find(it => it.type === 'slam_start');
+          const s = items.find((it) => it.type === "slam_start");
           if (s) setRouteStart({ x: Number(s.x), y: Number(s.y) });
-          else alert('No SLAM start item found');
+          else alert("No SLAM start item found");
         }}
         onReloadSegments={async () => {
           try {
             const data = await getSegments();
             setSegments(data);
-          } catch {}
+          } catch (error) {
+            if (process?.env?.NODE_ENV !== 'production') console.warn('reload segments failed', error);
+          }
         }}
         onReloadItems={async () => {
           try {
             const it = await getItems(mart?.id);
             setItems(it);
-          } catch {}
+          } catch (error) {
+            if (process?.env?.NODE_ENV !== 'production') console.warn('reload items failed', error);
+          }
         }}
         search={search}
         setSearch={setSearch}
@@ -555,10 +687,21 @@ export default function AdminMapPage() {
         setShowGrid={setShowGrid}
         showLabels={showLabels}
         setShowLabels={setShowLabels}
+        categories={categories}
+        martId={mart?.id ?? null}
+        reloadCategories={async () => {
+          try {
+            setCategories(await getCategories(mart?.id));
+          } catch (error) {
+            if (process?.env?.NODE_ENV !== 'production') console.warn('reload categories failed', error);
+          }
+        }}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
       />
 
       <MapCanvas
-        key={mart ? mart.id : 'no-mart'}
+        key={mart ? mart.id : "no-mart"}
         containerRef={containerRef}
         onMapClick={handleMapClick}
         onMapMove={(p) => setMousePos(p)}
@@ -568,6 +711,9 @@ export default function AdminMapPage() {
         segments={segments}
         routePolyline={routePolyline}
         drawPoints={drawPoints}
+        categories={categories}
+        categoryPoints={categoryPoints}
+        categoryMode={categoryMode}
         items={items}
         newItemPos={newItemPos}
         selectedItem={selectedItem}
@@ -577,9 +723,16 @@ export default function AdminMapPage() {
         headingPickMode={headingPickMode}
         headingArrow={(() => {
           // Show arrow when slam_start and we have heading
-          const isCreate = createMode && newItem.type === 'slam_start' && (newItemPos || (newItem.x!=null && newItem.y!=null));
-          const isEdit = editMode && selectedItem && selectedItem.type === 'slam_start';
-          const hasHeading = newItem.heading_deg !== undefined && newItem.heading_deg !== '' && newItem.heading_deg !== null;
+          const isCreate =
+            createMode &&
+            newItem.type === "slam_start" &&
+            (newItemPos || (newItem.x != null && newItem.y != null));
+          const isEdit =
+            editMode && selectedItem && selectedItem.type === "slam_start";
+          const hasHeading =
+            newItem.heading_deg !== undefined &&
+            newItem.heading_deg !== "" &&
+            newItem.heading_deg !== null;
           if (isCreate && hasHeading) {
             const px = Number(newItem.x ?? newItemPos?.x);
             const py = Number(newItem.y ?? newItemPos?.y);
@@ -616,6 +769,7 @@ export default function AdminMapPage() {
             onSaveEdit={saveEditedItem}
             onDelete={handleDeleteItem}
             onPickHeading={() => setHeadingPickMode(true)}
+            categories={categories}
             onCancel={() => {
               setNewItemPos(null);
               setSelectedItem(null);
@@ -642,14 +796,33 @@ export default function AdminMapPage() {
           setChatInput={setChatInput}
           chatReply={chatReply}
           setChatReply={setChatReply}
-          device={slamStart ? { x: slamStart.x, y: slamStart.y, z: slamStart.z ?? null } : null}
+          device={
+            slamStart
+              ? { x: slamStart.x, y: slamStart.y, z: slamStart.z ?? null }
+              : null
+          }
         />
       )}
 
-      {showSidebar && <ItemsSidebar items={items} filterText={search} slamStart={slamStart} />}
+      {showSidebar && (
+        <ItemsSidebar items={items} filterText={search} slamStart={slamStart} />
+      )}
 
       {mousePos && (
-        <div style={{ position: "fixed", left: 16, bottom: 16, background: "#0b0b0f", border: "1px solid #2a2a2e", color: "#e5e7eb", padding: "6px 8px", borderRadius: 6, fontSize: 12, zIndex: 50 }}>
+        <div
+          style={{
+            position: "fixed",
+            left: 16,
+            bottom: 16,
+            background: "#0b0b0f",
+            border: "1px solid #2a2a2e",
+            color: "#e5e7eb",
+            padding: "6px 8px",
+            borderRadius: 6,
+            fontSize: 12,
+            zIndex: 50,
+          }}
+        >
           ({Math.round(mousePos.x)}, {Math.round(mousePos.y)})
         </div>
       )}

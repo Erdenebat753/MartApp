@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useDarkMode } from "../hooks/useDarkMode";
+import { useI18n } from "../i18n";
 import { useMart } from "../context/MartContext";
 
 function NavLink({ to, label, active, compact = false }) {
@@ -23,7 +24,8 @@ function NavLink({ to, label, active, compact = false }) {
   );
 }
 
-export default function AdminLayout({ route, children }) {
+export default function AdminLayout({ route, children, onLogout }) {
+  const { t, lang, setLang } = useI18n();
   const { mode, toggle } = useDarkMode("dark");
   const { mart } = useMart();
   const [collapsed, setCollapsed] = useState(false);
@@ -72,7 +74,7 @@ export default function AdminLayout({ route, children }) {
           boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
           <button
             onClick={() => setCollapsed((v) => !v)}
             title={collapsed ? "Expand" : "Collapse"}
@@ -82,22 +84,29 @@ export default function AdminLayout({ route, children }) {
           </button>
           {!collapsed && (
             <div style={{ display: "grid" }}>
-              <div style={{ fontWeight: 700 }}>Admin Dashboard</div>
+              <div style={{ fontWeight: 700 }}>{t('app_title')}</div>
               <div style={{ fontSize: 12, color: "#9ca3af" }}>Active Mart: {mart?.name ?? "None"}</div>
             </div>
           )}
           <button onClick={toggle} title="Toggle theme" style={{ padding: "6px 10px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}>
             {mode === "dark" ? "🌙" : "☀️"}
           </button>
+          <select value={lang} onChange={(e)=>setLang(e.target.value)} style={{ padding: '6px 8px', background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }}>
+            <option value="ko">한국어</option>
+            <option value="en">English</option>
+          </select>
+          <button onClick={onLogout} title="Logout" style={{ padding: "6px 10px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}>
+            {t('logout')}
+          </button>
         </div>
         <nav style={{ display: "grid", gap: 6, flex: 1, overflow: "auto", alignContent: "start" }}>
-          <NavLink to="home" label={collapsed ? "H" : "Home"} active={route === "home"} compact={collapsed} />
-          <NavLink to="map" label={collapsed ? "M" : "Map Editor"} active={route === "map"} compact={collapsed} />
-          <NavLink to="items" label={collapsed ? "I" : "Items"} active={route === "items"} compact={collapsed} />
-          <NavLink to="3d" label={collapsed ? "3D" : "3D Viewer"} active={route === "3d"} compact={collapsed} />
-          <NavLink to="chat" label={collapsed ? "C" : "Chat"} active={route === "chat"} compact={collapsed} />
-          <NavLink to="settings" label={collapsed ? "S" : "Settings"} active={route === "settings"} compact={collapsed} />
-          <NavLink to="mart" label={collapsed ? "Mart" : "Mart"} active={route === "mart"} compact={collapsed} />
+          <NavLink to="home" label={collapsed ? "H" : t('home')} active={route === "home"} compact={collapsed} />
+          <NavLink to="map" label={collapsed ? "M" : t('map_editor')} active={route === "map"} compact={collapsed} />
+          <NavLink to="items" label={collapsed ? "I" : t('items')} active={route === "items"} compact={collapsed} />
+          <NavLink to="3d" label={collapsed ? "3D" : t('viewer3d')} active={route === "3d"} compact={collapsed} />
+          <NavLink to="chat" label={collapsed ? "C" : t('chat')} active={route === "chat"} compact={collapsed} />
+          <NavLink to="settings" label={collapsed ? "S" : t('settings')} active={route === "settings"} compact={collapsed} />
+          <NavLink to="mart" label={collapsed ? "Mart" : t('mart')} active={route === "mart"} compact={collapsed} />
         </nav>
         {!collapsed && (
           <div

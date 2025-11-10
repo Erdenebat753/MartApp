@@ -24,6 +24,8 @@ class ItemBase(BaseModel):
     z: Optional[float] = None
     image_url: Optional[str] = None
     note: Optional[str] = None
+    # optional category
+    category_id: Optional[int] = None
     price: Optional[float] = None          # new
     sale_percent: Optional[int] = None     # new
     sale_end_at: Optional[datetime] = None # new: sale дуусах хугацаа
@@ -198,5 +200,30 @@ class ItemListCreate(ItemListBase):
 
 class ItemListRead(ItemListBase):
     id: int
+    class Config:
+        from_attributes = True
+
+#
+# CATEGORY
+#
+class PolyPoint(BaseModel):
+    x: float
+    y: float
+
+class CategoryBase(BaseModel):
+    mart_id: int
+    name: str
+    polygon: list[PolyPoint]
+    color: Optional[str] = None
+
+class CategoryCreate(CategoryBase):
+    pass
+
+class CategoryRead(BaseModel):
+    id: int
+    mart_id: int
+    name: str
+    polygon: list[PolyPoint]
+    color: Optional[str] = None
     class Config:
         from_attributes = True

@@ -1,11 +1,15 @@
 import React, { useMemo } from "react";
 import { View, Text } from "react-native";
-// Lazy require to avoid bundle errors when the package is not installed yet
-let MapboxGL: any = null;
-try { MapboxGL = require("@rnmapbox/maps"); } catch {}
 import type { Point } from "../Map2D";
 import { MAPBOX_TOKEN, ORIGIN_LAT, ORIGIN_LNG, PIXELS_PER_METER_ENV } from "../../constants/mapbox";
 import { PIXELS_PER_METER as PPM_DEFAULT } from "../../constants/map";
+
+// Lazy require to avoid bundle errors when the package is not installed yet
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const MapboxGL: any = (() => { try { return require("@rnmapbox/maps"); } catch { return null; } })();
+
+// Minimal press event shape used in onPress handler
+type MapboxOnPressEvent = { geometry?: { coordinates?: number[] } };
 
 type Props = {
   width: number;
@@ -18,6 +22,10 @@ type Props = {
   onLongPress?: (p: Point) => void;
   headingDeg?: number;
   debug?: boolean;
+  interactive?: boolean; // enable gestures
+  autoZoom?: boolean; // fit to route/user
+  initialZoom?: number; // default zoom when not autoZoom
+  categories?: { name: string; polygon: Point[]; color?: string | null }[];
 };
 
 const PPM = PIXELS_PER_METER_ENV || PPM_DEFAULT; // pixels per meter
@@ -64,6 +72,10 @@ export default function IndoorMap({
   onLongPress,
   headingDeg = 0,
   debug = false,
+  interactive = true,
+  autoZoom = false,
+  initialZoom = 20,
+  categories = [],
 }: Props) {
   const imageUrl = typeof backgroundSource === "string" ? backgroundSource : undefined;
 
@@ -86,6 +98,35 @@ export default function IndoorMap({
     } as const;
   }, [polyline]);
 
+  const catLabelShape = useMemo(() => {
+    try {
+      const features: any[] = [];
+      for (const c of categories || []) {
+        const pts = Array.isArray(c.polygon) ? c.polygon : [];
+        if (pts.length === 0) continue;
+        let cx = 0, cy = 0, A = 0;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const p0 = pts[j], p1 = pts[i];
+          const a = (p0.x * p1.y - p1.x * p0.y);
+          A += a; cx += (p0.x + p1.x) * a; cy += (p0.y + p1.y) * a;
+        }
+        if (Math.abs(A) < 1e-5) {
+          const sx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+          const sy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+          const [lng, lat] = pxToLngLat(sx, sy);
+          features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: { name: c.name } });
+          continue;
+        }
+        A *= 0.5; cx = cx / (6 * A); cy = cy / (6 * A);
+        const [lng, lat] = pxToLngLat(cx, cy);
+        features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: { name: c.name } });
+      }
+      return { type: 'FeatureCollection', features } as const;
+    } catch {
+      return null;
+    }
+  }, [categories]);
+
   const userShape = useMemo(() => {
     if (!user) return null;
     const [lng, lat] = pxToLngLat(user.x, user.y);
@@ -96,11 +137,41 @@ export default function IndoorMap({
     } as const;
   }, [user, headingDeg]);
 
+  // We rotate the map itself using camera bearing, so no arrow line.
+
   const centerCoordinate = useMemo(() => {
     if (user) return pxToLngLat(user.x, user.y);
     // center of the image
     return pxToLngLat(mapWidthPx / 2, mapHeightPx / 2);
   }, [user, mapWidthPx, mapHeightPx]);
+
+  // Use a blank style so no global basemap is rendered behind the floorplan
+  const blankStyle = useMemo(() => ({ version: 8, sources: {}, layers: [] as any[] }), []);
+
+  // Compute auto zoom to fit remaining polyline + user with padding
+  const zoomLevel = useMemo(() => {
+    if (!autoZoom || !polyline || polyline.length === 0) return initialZoom;
+    const pts = user ? [user, ...polyline] : polyline;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const spanPxX = Math.max(10, maxX - minX);
+    const spanPxY = Math.max(10, maxY - minY);
+    const PPM = PIXELS_PER_METER_ENV || PPM_DEFAULT;
+    const spanMX = spanPxX / PPM;
+    const spanMY = spanPxY / PPM;
+    const pad = 1.3; // 30% padding
+    const R = Math.cos((ORIGIN_LAT * Math.PI) / 180);
+    const C = 156543.03392 * R; // meters per pixel at zoom 0
+    const zx = Math.log2((C * width) / (Math.max(1e-3, spanMX) * pad));
+    const zy = Math.log2((C * height) / (Math.max(1e-3, spanMY) * pad));
+    const z = Math.min(zx, zy);
+    return Math.max(18, Math.min(22, z));
+  }, [autoZoom, polyline, user, width, height, initialZoom]);
 
   if (!MapboxGL || !MapboxGL.MapView) {
     return (
@@ -112,17 +183,21 @@ export default function IndoorMap({
     );
   }
 
-  const styleUrl = MapboxGL?.StyleURL?.Dark ?? "mapbox://styles/mapbox/dark-v11";
+  const radius = Math.min(width, height) / 2;
 
   return (
-    <View style={{ width, height, backgroundColor: "#111" }}>
+    <View style={{ width, height, backgroundColor: "#111", borderRadius: radius, overflow: "hidden" }}>
       <MapboxGL.MapView
         style={{ width: "100%", height: "100%" }}
-        styleURL={styleUrl}
+        styleJSON={JSON.stringify(blankStyle) as any}
+        scrollEnabled={interactive}
+        zoomEnabled={interactive}
+        rotateEnabled={false}
+        pitchEnabled={false}
         compassEnabled={false}
         logoEnabled={false}
         attributionEnabled={false}
-        onPress={(e) => {
+        onPress={(e: MapboxOnPressEvent) => {
           if (!onLongPress) return;
           const { geometry } = e;
           const [lng, lat] = (geometry?.coordinates || []) as number[];
@@ -132,7 +207,12 @@ export default function IndoorMap({
           }
         }}
       >
-        <MapboxGL.Camera centerCoordinate={centerCoordinate as any} zoomLevel={20} pitch={0} />
+        <MapboxGL.Camera
+          centerCoordinate={centerCoordinate as any}
+          zoomLevel={zoomLevel}
+          pitch={0}
+          bearing={-headingDeg}
+        />
 
         {/* Floorplan overlay if URL provided */}
         {imageUrl && (
@@ -149,7 +229,23 @@ export default function IndoorMap({
           </MapboxGL.ShapeSource>
         )}
 
-        {/* User dot */}
+        {/* Category labels */}
+        {catLabelShape && (
+          <MapboxGL.ShapeSource id="catLabels" shape={catLabelShape as any}>
+            <MapboxGL.SymbolLayer
+              id="catLabelLayer"
+              style={{
+                textField: ['get', 'name'] as any,
+                textColor: '#e5e7eb',
+                textSize: 12,
+                textAllowOverlap: true,
+                textIgnorePlacement: true,
+              }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
+
+        {/* User dot (kept centered by camera centerCoordinate) */}
         {userShape && (
           <MapboxGL.ShapeSource id="user" shape={userShape as any}>
             <MapboxGL.CircleLayer

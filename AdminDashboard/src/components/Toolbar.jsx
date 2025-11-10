@@ -2,13 +2,18 @@ import React from "react";
 
 export default function Toolbar({
   drawMode, setDrawMode,
+  categoryMode, setCategoryMode,
   routeMode, setRouteMode,
   createMode, setCreateMode,
   editMode, setEditMode,
   selectSegMode, setSelectSegMode,
   drawPointsCount,
+  categoryPointsCount,
   onClearDraw,
+  onClearCategory,
   onSaveSegment,
+  onSaveCategory,
+  categoryName, setCategoryName,
   routeStart, routeEnd,
   onClearRoute,
   onComputeRoute,
@@ -31,6 +36,13 @@ export default function Toolbar({
       </button>
       <button onClick={onClearDraw} disabled={!drawPointsCount} style={{ padding: "6px 10px", background: !drawPointsCount ? "#1f2937" : "#27272a", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, opacity: !drawPointsCount ? 0.6 : 1 }}>Clear Draw</button>
       <button onClick={onSaveSegment} disabled={drawPointsCount < 2} style={{ padding: "6px 10px", background: drawPointsCount < 2 ? "#1f2937" : "#27272a", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, opacity: drawPointsCount < 2 ? 0.6 : 1 }}>Save Segment</button>
+      <span style={{ width: 1, height: 20, background: "#2a2a2e" }} />
+      <button onClick={() => { const nv = !categoryMode; setCategoryMode(nv); if(nv){ setDrawMode(false); setRouteMode(false); setCreateMode(false); setEditMode(false); setSelectSegMode(false);} }} style={{ padding: "6px 10px", background: categoryMode ? "#f472b6" : "#27272a", color: categoryMode ? "#2b0a1f" : "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>
+        {categoryMode ? "Category Draw: ON" : "Category Draw: OFF"}
+      </button>
+      <input placeholder="Category name" value={categoryName} onChange={(e)=>setCategoryName(e.target.value)} style={{ padding: 6, width: 180, background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }} />
+      <button onClick={onClearCategory} disabled={!categoryPointsCount} style={{ padding: "6px 10px", background: !categoryPointsCount ? "#1f2937" : "#27272a", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, opacity: !categoryPointsCount ? 0.6 : 1 }}>Clear Category</button>
+      <button onClick={onSaveCategory} disabled={categoryPointsCount < 3 || !categoryName} style={{ padding: "6px 10px", background: (categoryPointsCount < 3 || !categoryName) ? "#1f2937" : "#27272a", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, opacity: (categoryPointsCount < 3 || !categoryName) ? 0.6 : 1 }}>Save Category</button>
       <span style={{ width: 1, height: 20, background: "#2a2a2e" }} />
       <button onClick={() => { const nv = !routeMode; setRouteMode(nv); if(nv){ setDrawMode(false); setCreateMode(false); setEditMode(false); setSelectSegMode(false);} }} style={{ padding: "6px 10px", background: routeMode ? "#60a5fa" : "#27272a", color: routeMode ? "#0b1220" : "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6 }}>
         {routeMode ? "Route Mode: ON" : "Route Mode: OFF"}

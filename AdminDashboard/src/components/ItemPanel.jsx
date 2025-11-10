@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../config";
 import { uploadItemImage } from "../api";
 
-export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, onSaveEdit, onDelete, onCancel, onPickHeading }) {
+export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, onSaveEdit, onDelete, onCancel, onPickHeading, categories = [] }) {
   const [pos, setPos] = useState({ left: 16, top: 16 });
   const [size, setSize] = useState({ width: 360, height: 520 });
   const [dragging, setDragging] = useState(false);
@@ -80,6 +80,13 @@ export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, on
           <option value="product">product</option>
           <option value="product_zone">product_zone</option>
           <option value="slam_start">slam_start</option>
+        </select>
+        <label>Category</label>
+        <select value={newItem.category_id ?? ""} onChange={(e)=>setNewItem((p)=>({...p, category_id: e.target.value ? Number(e.target.value) : null}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}>
+          <option value="">(none)</option>
+          {categories.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
         </select>
         {newItem.type === 'slam_start' && (
           <>
