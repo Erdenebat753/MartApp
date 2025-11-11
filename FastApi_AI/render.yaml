@@ -5,6 +5,6 @@ services:
     plan: free
     rootDir: FastApi_AI
     buildCommand: "pip install --no-cache-dir -r requirements.txt"
-    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
     runtime:
       pythonVersion: 3.11.9
