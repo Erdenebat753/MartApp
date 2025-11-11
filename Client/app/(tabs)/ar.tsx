@@ -56,7 +56,8 @@ export default function ARTab() {
   const [autoZoom, setAutoZoom] = useState<boolean>(true);
   const [routeIdx, setRouteIdx] = useState<number>(0);
   const [arrived, setArrived] = useState<boolean>(false);
-  const WAYPOINT_RADIUS_PX = 100; // 1m = 100px zone
+  // Waypoint capture radius: 1 meter expressed in pixels using current ppm
+  const waypointRadiusPx = 1.0 * ppm; // 1m zone
   const [debug, setDebug] = useState(false);
   const [invertYaw180, setInvertYaw180] = useState(false);
   const lastPoseTsRef = React.useRef<number>(0);
@@ -264,7 +265,7 @@ export default function ARTab() {
       const dx = user.x - wp.x;
       const dy = user.y - wp.y;
       const dist = Math.hypot(dx, dy);
-      if (dist <= WAYPOINT_RADIUS_PX) {
+      if (dist <= waypointRadiusPx) {
         idx += 1;
         advanced = true;
         continue;
