@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # OpenAI / LLM
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
+    DATABASE_URL: Optional[str] = None
 
     # CORS (read as simple string to avoid JSON pre-decoding in settings source)
     CORS_ORIGINS_RAW: Optional[str] = Field(default=None, validation_alias="CORS_ORIGINS")
@@ -47,6 +48,17 @@ class Settings(BaseSettings):
     _env_primary = os.path.join(_base_dir, ".env")
     _env_fallback = os.path.join(_base_dir, ".env.sample")
     _env_file = _env_primary if os.path.exists(_env_primary) else (_env_fallback if os.path.exists(_env_fallback) else _env_primary)
+
+    @property
+    def database_url(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        # default to the SQLite file shipped with the project
+        return "sqlite+aiosqlite:///./store_nav.db"
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.strip().lower().startswith("sqlite")
 
     model_config = SettingsConfigDict(
         env_file=_env_file,

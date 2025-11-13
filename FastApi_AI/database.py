@@ -1,16 +1,13 @@
-# database.py (SQLite хувилбар)
-
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from config import settings
 
-# MySQL биш, SQLite ашиглаж байна
-# Энэ нь одоо таны төслийн хавтсанд store_nav.db гэж файл үүсгэнэ
-DATABASE_URL = "sqlite+aiosqlite:///./store_nav.db"
+DATABASE_URL = settings.database_url
 
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,           # debug log харагдана
-    future=True
+    echo=True,
+    future=True,
 )
 
 async_session_factory = sessionmaker(

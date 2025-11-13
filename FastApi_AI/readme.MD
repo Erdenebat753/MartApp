@@ -70,10 +70,9 @@ cp .env.sample .env
 
 - `OPENAI_API_KEY`
 - 기타 설정은 `config.py`와 `.env.sample` 참고
+- `DATABASE_URL` (PostgreSQL DSN when you stop using the default SQLite `./store_nav.db`)
 
 ## 5. 서버 실행 (0.0.0.0:8000)
-
-반드시 가상환경이 활성화된 상태에서 실행하세요.
 
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -95,3 +94,5 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - 애플리케이션 엔트리포인트: `main.py` (앱 객체: `main:app`)
 - CORS/환경설정: `config.py`, `.env.sample`
 - 데이터베이스/모델: `database.py`, `models.py`
+
+(.venv) uvicorn main:app --reload --host 0.0.0.0 --port 8000

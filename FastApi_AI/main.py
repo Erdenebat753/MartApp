@@ -48,10 +48,11 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Ensure SQLite enforces foreign keys
-        try:
-            await conn.execute(text("PRAGMA foreign_keys=ON"))
-        except Exception:
-            pass
+        if settings.is_sqlite:
+            try:
+                await conn.execute(text("PRAGMA foreign_keys=ON"))
+            except Exception:
+                pass
     # Train intent classifier once on startup (if data present)
     try:
         from routers.chatbot import init_intent_model
@@ -59,32 +60,33 @@ async def on_startup():
     except Exception:
         pass
     # lightweight SQLite migration: ensure 'z' and 'heading_deg' columns exist on items
-    try:
-        async with engine.begin() as conn2:
-            res = await conn2.execute(text("PRAGMA table_info('items')"))
-            cols = [row[1] for row in res]
-            if 'z' not in cols:
-                await conn2.execute(text("ALTER TABLE items ADD COLUMN z REAL"))
-            if 'heading_deg' not in cols:
-                await conn2.execute(text("ALTER TABLE items ADD COLUMN heading_deg REAL"))
-            if 'mart_id' not in cols:
-                await conn2.execute(text("ALTER TABLE items ADD COLUMN mart_id INTEGER"))
-                # ensure at least one mart exists
-                mres = await conn2.execute(text("SELECT id FROM marts LIMIT 1"))
-                row = mres.fetchone()
-                if row is None:
-                    await conn2.execute(text("INSERT INTO marts (name) VALUES ('Default Mart')"))
-                    mres2 = await conn2.execute(text("SELECT id FROM marts ORDER BY id DESC LIMIT 1"))
-                    row = mres2.fetchone()
-                default_mart_id = int(row[0]) if row else 1
-                # set mart_id for existing items
-                await conn2.execute(text("UPDATE items SET mart_id = :mid WHERE mart_id IS NULL"), { 'mid': default_mart_id })
-            if 'sale_end_at' not in cols:
-                await conn2.execute(text("ALTER TABLE items ADD COLUMN sale_end_at TIMESTAMP"))
-            if 'category_id' not in cols:
-                await conn2.execute(text("ALTER TABLE items ADD COLUMN category_id INTEGER"))
-    except Exception:
-        pass
+    if settings.is_sqlite:
+        try:
+            async with engine.begin() as conn2:
+                res = await conn2.execute(text("PRAGMA table_info('items')"))
+                cols = [row[1] for row in res]
+                if 'z' not in cols:
+                    await conn2.execute(text("ALTER TABLE items ADD COLUMN z REAL"))
+                if 'heading_deg' not in cols:
+                    await conn2.execute(text("ALTER TABLE items ADD COLUMN heading_deg REAL"))
+                if 'mart_id' not in cols:
+                    await conn2.execute(text("ALTER TABLE items ADD COLUMN mart_id INTEGER"))
+                    # ensure at least one mart exists
+                    mres = await conn2.execute(text("SELECT id FROM marts LIMIT 1"))
+                    row = mres.fetchone()
+                    if row is None:
+                        await conn2.execute(text("INSERT INTO marts (name) VALUES ('Default Mart')"))
+                        mres2 = await conn2.execute(text("SELECT id FROM marts ORDER BY id DESC LIMIT 1"))
+                        row = mres2.fetchone()
+                    default_mart_id = int(row[0]) if row else 1
+                    # set mart_id for existing items
+                    await conn2.execute(text("UPDATE items SET mart_id = :mid WHERE mart_id IS NULL"), { 'mid': default_mart_id })
+                if 'sale_end_at' not in cols:
+                    await conn2.execute(text("ALTER TABLE items ADD COLUMN sale_end_at TIMESTAMP"))
+                if 'category_id' not in cols:
+                    await conn2.execute(text("ALTER TABLE items ADD COLUMN category_id INTEGER"))
+        except Exception:
+            pass
     # one-time migrate existing items.type='slam_start' into slam_start table
     try:
         from sqlalchemy import select, delete

@@ -263,9 +263,9 @@ export default function Map2D({
             const ang =
               ((rotateMap ? 0 : headingInvert ? -hd : hd) * Math.PI) / 180;
             // Triple the previous size for higher visibility
-            const s = 48; // size in px (3x larger)
-            const b = s * 0.6; // base distance from center towards back
-            const w = s * 0.8; // base width
+            const s = 24; // size in px (smaller arrow)
+            const b = s * 0.6;
+            const w = s * 0.8;
             const dx = Math.sin(ang);
             const dy = -Math.cos(ang); // screen up is -y
             const tipX = cx + dx * s;
@@ -285,10 +285,10 @@ export default function Map2D({
                 <SvgCircle
                   cx={cx}
                   cy={cy}
-                  r={6}
+                  r={4}
                   fill="#3fa9f5"
                   stroke="#083a66"
-                  strokeWidth={2}
+                  strokeWidth={1.5}
                 />
                 {/* heading ray for extra visibility */}
                 <SvgPolyline
