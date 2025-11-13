@@ -10,6 +10,7 @@ import Svg, {
   Polyline as SvgPolyline,
   Circle as SvgCircle,
   Text as SvgText,
+  Polygon as SvgPolygon,
 } from "react-native-svg";
 
 export type Point = { x: number; y: number };
@@ -89,7 +90,8 @@ export default function Map2D({
       y -= height / 2;
       // undo rotation
       if (rotateMap) {
-        const ang = ((headingInvert ? -headingDeg : headingDeg) * Math.PI) / 180;
+        const ang =
+          ((headingInvert ? -headingDeg : headingDeg) * Math.PI) / 180;
         const cos = Math.cos(ang);
         const sin = Math.sin(ang);
         const rx = cos * x + -sin * y;
@@ -111,37 +113,43 @@ export default function Map2D({
 
   // Compute category label positions (simple polygon centroid)
   const catLabels = useMemo(() => {
-    return (categories || []).map((c) => {
-      const pts = Array.isArray(c.polygon) ? c.polygon : [];
-      let cx = 0, cy = 0, A = 0;
-      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-        const p0 = pts[j], p1 = pts[i];
-        const a = (p0.x * p1.y - p1.x * p0.y);
-        A += a;
-        cx += (p0.x + p1.x) * a;
-        cy += (p0.y + p1.y) * a;
-      }
-      if (Math.abs(A) < 1e-5) {
-        // fallback: average of points
-        if (pts.length > 0) {
-          const sx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-          const sy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-          return { name: c.name, x: offX + sx * scale, y: offY + sy * scale };
+    return (categories || [])
+      .map((c) => {
+        const pts = Array.isArray(c.polygon) ? c.polygon : [];
+        let cx = 0,
+          cy = 0,
+          A = 0;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const p0 = pts[j],
+            p1 = pts[i];
+          const a = p0.x * p1.y - p1.x * p0.y;
+          A += a;
+          cx += (p0.x + p1.x) * a;
+          cy += (p0.y + p1.y) * a;
         }
-        return null;
-      }
-      A *= 0.5;
-      cx = cx / (6 * A);
-      cy = cy / (6 * A);
-      return { name: c.name, x: offX + cx * scale, y: offY + cy * scale };
-    }).filter(Boolean) as { name: string; x: number; y: number }[];
+        if (Math.abs(A) < 1e-5) {
+          // fallback: average of points
+          if (pts.length > 0) {
+            const sx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+            const sy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+            return { name: c.name, x: offX + sx * scale, y: offY + sy * scale };
+          }
+          return null;
+        }
+        A *= 0.5;
+        cx = cx / (6 * A);
+        cy = cy / (6 * A);
+        return { name: c.name, x: offX + cx * scale, y: offY + cy * scale };
+      })
+      .filter(Boolean) as { name: string; x: number; y: number }[];
   }, [categories, offX, offY, scale]);
 
   // Build transform so that only the map moves: translate(user to origin), rotate, translate to center
   const userSX = offX + (user?.x ?? 0) * scale;
   const userSY = offY + (user?.y ?? 0) * scale;
   const angleDeg = headingInvert ? -headingDeg : headingDeg;
-  const transforms = (rotateMap || centerOnUser) && user
+  const shouldCenter = centerOnUser && user;
+  const transforms = shouldCenter
     ? [
         { translateX: -userSX },
         { translateY: -userSY },
@@ -164,7 +172,16 @@ export default function Map2D({
       }}
     >
       {/* Transform group: map + route rotate/translate; user stays outside */}
-      <View style={{ position: "absolute", left: 0, top: 0, width, height, transform: transforms }}>
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width,
+          height,
+          transform: transforms,
+        }}
+      >
         {backgroundSource ? (
           <Image
             source={backgroundSource}
@@ -180,7 +197,8 @@ export default function Map2D({
               if (debug) console.log("[Map2D] image loaded");
             }}
             onError={(e) => {
-              if (debug) console.log("[Map2D] image load error", e?.nativeEvent);
+              if (debug)
+                console.log("[Map2D] image load error", e?.nativeEvent);
             }}
           />
         ) : (
@@ -229,7 +247,7 @@ export default function Map2D({
         </Svg>
       </View>
 
-      {/* User dot rendered on top, always centered when centerOnUser */}
+      {/* User marker (arrow + small dot fallback) rendered on top */}
       {user && (
         <Svg
           width={width}
@@ -237,14 +255,60 @@ export default function Map2D({
           style={{ position: "absolute", left: 0, top: 0 }}
           pointerEvents="none"
         >
-          <SvgCircle
-            cx={centerOnUser ? width / 2 : offX + user.x * scale}
-            cy={centerOnUser ? height / 2 : offY + user.y * scale}
-            r={4}
-            stroke="#083a66"
-            strokeWidth={1}
-            fill="#3fa9f5"
-          />
+          {(() => {
+            const cx = centerOnUser ? width / 2 : offX + user.x * scale;
+            const cy = centerOnUser ? height / 2 : offY + user.y * scale;
+            // When rotating the map, keep arrow pointing up; otherwise rotate by heading
+            const hd = Number.isFinite(headingDeg) ? headingDeg : 0;
+            const ang =
+              ((rotateMap ? 0 : headingInvert ? -hd : hd) * Math.PI) / 180;
+            // Triple the previous size for higher visibility
+            const s = 48; // size in px (3x larger)
+            const b = s * 0.6; // base distance from center towards back
+            const w = s * 0.8; // base width
+            const dx = Math.sin(ang);
+            const dy = -Math.cos(ang); // screen up is -y
+            const tipX = cx + dx * s;
+            const tipY = cy + dy * s;
+            const bx = cx - dx * b;
+            const by = cy - dy * b;
+            const px = dy; // perpendicular
+            const py = -dx;
+            const leftX = bx + px * (w / 2);
+            const leftY = by + py * (w / 2);
+            const rightX = bx - px * (w / 2);
+            const rightY = by - py * (w / 2);
+            const pts = `${tipX},${tipY} ${leftX},${leftY} ${rightX},${rightY}`;
+            return (
+              <>
+                {/* draw center dot first */}
+                <SvgCircle
+                  cx={cx}
+                  cy={cy}
+                  r={6}
+                  fill="#3fa9f5"
+                  stroke="#083a66"
+                  strokeWidth={2}
+                />
+                {/* heading ray for extra visibility */}
+                <SvgPolyline
+                  points={`${cx},${cy} ${tipX},${tipY}`}
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeOpacity={0.8 as any}
+                  strokeWidth={6}
+                  strokeLinecap="round"
+                />
+                {/* arrow on top */}
+                <SvgPolygon
+                  points={pts}
+                  fill="#3fa9f5"
+                  stroke="#083a66"
+                  strokeWidth={3}
+                />
+              </>
+            );
+          })()}
         </Svg>
       )}
 

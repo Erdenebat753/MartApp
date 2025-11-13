@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import AdminLayout from "./layouts/AdminLayout";
+import { MartProvider } from "./context/MartContext.jsx";
 import Home from "./pages/Home";
 import AdminMapPage from "./pages/AdminMapPage";
 import ChatPage from "./pages/Chat";
@@ -35,7 +36,7 @@ function App() {
     return <Login onLoggedIn={() => setAuthed(true)} />;
   }
 
-  const [route] = useHashRoute("home");
+  const [route] = useHashRoute("map");
   const content = useMemo(() => {
     switch (route) {
       case "map":
@@ -57,9 +58,11 @@ function App() {
   }, [route]);
 
   return (
-    <AdminLayout route={route} onLogout={() => { clearToken(); setAuthed(false); }}>
-      {content}
-    </AdminLayout>
+    <MartProvider>
+      <AdminLayout route={route} onLogout={() => { clearToken(); setAuthed(false); }}>
+        {content}
+      </AdminLayout>
+    </MartProvider>
   );
 }
 

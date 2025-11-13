@@ -189,16 +189,52 @@ def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float
         graph.setdefault(k, {})
         return k
     sa_k = ensure_node(sa); sb_k=ensure_node(sb); ea_k=ensure_node(ea); eb_k=ensure_node(eb)
+    # Insert projection nodes on the segments themselves to avoid long detours to endpoints
+    sq_k = ensure_node(sq)
+    eq_k = ensure_node(eq)
     def add_edge(ka,kb,w):
         graph.setdefault(ka,{}); graph.setdefault(kb,{})
         graph[ka][kb]=min(graph[ka].get(kb,float('inf')),w)
         graph[kb][ka]=min(graph[kb].get(ka,float('inf')),w)
+    # Connect projection nodes along their segments (split edges)
+    add_edge(sa_k, sq_k, _dist(sa, sq))
+    add_edge(sq_k, sb_k, _dist(sq, sb))
+    add_edge(ea_k, eq_k, _dist(ea, eq))
+    add_edge(eq_k, eb_k, _dist(eq, eb))
+
+    # Additionally, connect projection nodes to any existing graph vertices that lie
+    # on the same geometric segment, so the path can enter/exit mid-segment without
+    # detouring to endpoints.
+    def _connect_proj_to_segment_nodes(proj_pt: Tuple[float,float], a: Tuple[float,float], b: Tuple[float,float], proj_key: str):
+        # Parameter t for projection itself along AB
+        _, t_proj = _project_point_to_segment(proj_pt, a, b)
+        seg_len = _dist(a, b)
+        if seg_len <= 1e-9:
+            return
+        for key, pt in list(coords_by_key.items()):
+            # Skip S/E special nodes (not in coords_by_key anyway) and self
+            if key == proj_key:
+                continue
+            # Check if pt lies on segment AB (within small perpendicular tolerance)
+            q, t = _project_point_to_segment(pt, a, b)
+            # Only consider interior points (exclude endpoints, which are already connected)
+            if t <= 1e-6 or t >= 1.0 - 1e-6:
+                continue
+            # Close enough to the segment line
+            if _dist(q, pt) <= 1e-4:
+                # Connect along-the-segment distance between projection and pt
+                w = abs(t - t_proj) * seg_len
+                add_edge(proj_key, key, w)
+
+    _connect_proj_to_segment_nodes(sq, sa, sb, sq_k)
+    _connect_proj_to_segment_nodes(eq, ea, eb, eq_k)
+
+    # Connect S/E to projection nodes using perpendicular distances
     s_to_sq=_dist(start,sq); e_to_eq=_dist(end,eq)
-    via_S={sa_k:sq, sb_k:sq}; via_E={ea_k:eq, eb_k:eq}
-    add_edge(S, sa_k, s_to_sq + _dist(sq, sa))
-    add_edge(S, sb_k, s_to_sq + _dist(sq, sb))
-    add_edge(ea_k, E, _dist(ea, eq) + e_to_eq)
-    add_edge(eb_k, E, _dist(eb, eq) + e_to_eq)
+    via_S={sq_k:sq}
+    via_E={eq_k:eq}
+    add_edge(S, sq_k, s_to_sq)
+    add_edge(eq_k, E, e_to_eq)
     # shortest path (Dijkstra or A*)
     def dijkstra_search():
         pq=[(0.0,S)]; dist_map={S:0.0}; prev={S:None}; vis=set()
@@ -247,9 +283,11 @@ def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float
         prev = dijkstra_search()
     if E not in prev:
         # cleanup before returning
-        graph.pop(S, None); graph.pop(E, None)
+        for cleanup_key in (S, E, sq_k, eq_k):
+            graph.pop(cleanup_key, None)
         for k in list(graph.keys()):
-            graph[k].pop(S, None); graph[k].pop(E, None)
+            for cleanup_key in (S, E, sq_k, eq_k):
+                graph[k].pop(cleanup_key, None)
         return [start, end]
     # reconstruct
     path=[]; cur=E
@@ -270,10 +308,12 @@ def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float
             out.append(end)
         else:
             if v in coords_by_key: out.append(coords_by_key[v])
-    # cleanup: remove S/E edges from graph to avoid pollution
-    graph.pop(S, None); graph.pop(E, None)
+    # cleanup: remove S/E and projection nodes from graph to avoid pollution
+    for cleanup_key in (S, E, sq_k, eq_k):
+        graph.pop(cleanup_key, None)
     for k in list(graph.keys()):
-        graph[k].pop(S, None); graph[k].pop(E, None)
+        for cleanup_key in (S, E, sq_k, eq_k):
+            graph[k].pop(cleanup_key, None)
     # dedup
     cleaned=[]
     for p in out:
@@ -305,7 +345,8 @@ async def get_route_by_coords(req: RouteByCoordsRequest, db: AsyncSession = Depe
         ])
     graph, coords_by_key = _build_graph(polylines)
     # Connect very-near nodes to bridge tiny gaps between drawn segments
-    _connect_nearby_nodes(graph, coords_by_key, eps=8.0)
+    # Allow slightly larger snapping tolerance to bridge small drawing gaps
+    _connect_nearby_nodes(graph, coords_by_key, eps=20.0)
     algo = (req.algorithm or "").lower().strip() or "astar"
     poly = _shortest_polyline_between((req.start.x, req.start.y), (req.end.x, req.end.y), graph, coords_by_key, polylines, algorithm=algo)
     return RoutePolylineResponse(polyline=[RoutePoint(x=p[0], y=p[1]) for p in poly])

@@ -12,15 +12,11 @@ import { useIsFocused } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ARTestScreen from "../../components/ARTestScreen";
 import Map2D, { Point } from "../../components/Map2D";
-import IndoorMap from "../../components/mapbox/IndoorMap";
-import { MAPBOX_TOKEN } from "../../constants/mapbox";
 import { useItems } from "../../hooks/useItems";
 import { useCategories } from "../../hooks/useCategories";
 import { useSlamStart } from "../../hooks/useSlamStart";
-import { useSensorHeading } from "../../hooks/useSensorHeading";
 import { useRouteCompute } from "../../hooks/useRoute";
 import { API_BASE } from "../../constants/api";
-import { PIXELS_PER_METER } from "../../constants/map";
 import type { Item } from "../../src/types";
 import { useMartMeta } from "../../hooks/useMartMeta";
 
@@ -43,54 +39,47 @@ export default function ARTab() {
   const [alignment, setAlignment] = useState<
     "Gravity" | "GravityAndHeading" | "Camera"
   >("GravityAndHeading");
-  const [useSensor, setUseSensor] = useState<boolean>(false);
-  const { headingDeg: sensorHeading, available: sensorAvailable } =
-    useSensorHeading(150);
-  const [ppm, setPpm] = useState<number>(PIXELS_PER_METER);
-  const [transUseCurrentYaw, setTransUseCurrentYaw] = useState<boolean>(false);
+  // Force-calibrate PPM to 100 (1m = 100px)
+  const [ppm, setPpm] = useState<number>(100);
+  // Use current device yaw for transforming AR camera deltas (better intuition)
+  const [transUseCurrentYaw, setTransUseCurrentYaw] = useState<boolean>(true);
+  const [rotateMap, setRotateMap] = useState<boolean>(true);
   const yawSmoothRef = React.useRef<number>(0);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const { route, compute, clear } = useRouteCompute();
-  const [interactiveMap, setInteractiveMap] = useState<boolean>(true);
-  const [autoZoom, setAutoZoom] = useState<boolean>(true);
   const [routeIdx, setRouteIdx] = useState<number>(0);
   const [arrived, setArrived] = useState<boolean>(false);
   // Waypoint capture radius: 1 meter expressed in pixels using current ppm
   const waypointRadiusPx = 1.0 * ppm; // 1m zone
   const [debug, setDebug] = useState(false);
-  const [invertYaw180, setInvertYaw180] = useState(false);
   const lastPoseTsRef = React.useRef<number>(0);
   // Keep dynamic values in refs so the AR callback can be stable
-  const useSensorRef = React.useRef(useSensor);
   const slamStartRef = React.useRef(slamStart);
   const camStartRef = React.useRef(camStart);
   const deviceYaw0Ref = React.useRef(deviceYaw0);
-  const sensorHeadingRef = React.useRef(sensorHeading);
   const trackingOKRef = React.useRef(true);
-  const sensorAvailableRef = React.useRef(sensorAvailable);
 
-  React.useEffect(() => { useSensorRef.current = useSensor; });
   React.useEffect(() => { slamStartRef.current = slamStart; });
   React.useEffect(() => { camStartRef.current = camStart; });
   React.useEffect(() => { deviceYaw0Ref.current = deviceYaw0; });
-  React.useEffect(() => { sensorHeadingRef.current = sensorHeading; });
-  React.useEffect(() => { sensorAvailableRef.current = sensorAvailable; });
 
   // Stable handlers (top-level hooks, not inside conditionals/JSX)
-  const handleDevicePose = React.useCallback((pos: [number, number, number], yawDeg: number) => {
-    if (!trackingOKRef.current) return;
-    const now = Date.now();
-    if (now - lastPoseTsRef.current < 33) return; // throttle ~30fps
-    lastPoseTsRef.current = now;
-    if (!useSensorRef.current) setDeviceYaw(yawDeg);
-    setCamNow(pos);
-    if (slamStartRef.current && !camStartRef.current) setCamStart(pos);
-    if (deviceYaw0Ref.current === null) {
-      const useSensorYaw = useSensorRef.current && sensorAvailableRef.current;
-      setDeviceYaw0(useSensorYaw ? sensorHeadingRef.current : yawDeg);
-    }
-  }, []);
+  const handleDevicePose = React.useCallback(
+    (pos: [number, number, number], yawDeg: number) => {
+      if (!trackingOKRef.current) return;
+      const now = Date.now();
+      if (now - lastPoseTsRef.current < 16) return;
+      lastPoseTsRef.current = now;
+      setDeviceYaw(yawDeg);
+      setCamNow(pos);
+      if (slamStartRef.current && !camStartRef.current) setCamStart(pos);
+      if (deviceYaw0Ref.current === null) {
+        setDeviceYaw0(yawDeg);
+      }
+    },
+    []
+  );
 
   const handleTrackingState = React.useCallback((st: string, rsn: string) => {
     try {
@@ -140,33 +129,26 @@ export default function ARTab() {
   }, []);
   useSlamStart(items, onSlamUser, onSlamHeading);
 
-  // Smooth yaw from AR when not using sensor (ref only, no state update)
   React.useEffect(() => {
-    if (!useSensor) {
-      const prev = yawSmoothRef.current;
-      // move prev → deviceYaw via smallest angular difference
-      let d = ((deviceYaw - prev + 540) % 360) - 180;
-      const next = prev + d * 0.1; // alpha (smoother)
-      // normalize 0..360
-      let norm = next % 360;
-      if (norm < 0) norm += 360;
-      yawSmoothRef.current = norm;
-    }
-  }, [deviceYaw, useSensor]);
+    const prev = yawSmoothRef.current;
+    let d = ((deviceYaw - prev + 540) % 360) - 180;
+    const next = prev + d * 0.1;
+    let norm = next % 360;
+    if (norm < 0) norm += 360;
+    yawSmoothRef.current = norm;
+  }, [deviceYaw]);
 
-  const yawRaw = useSensor && sensorAvailable ? sensorHeading : yawSmoothRef.current;
-  const yawUsed = invertYaw180 ? normalizeDeg(yawRaw + 180) : yawRaw;
+  const yawRaw = yawSmoothRef.current;
+  const yawUsed = yawRaw;
   const effectiveHeading = (() => {
     const base = Number(headingBase || 0);
     const d0 = deviceYaw0 ?? yawUsed;
-    // Invert delta sign to match admin/map rotation direction
-    const delta = normalizeDeg(d0 - yawUsed);
+    const delta = normalizeDeg(yawUsed - d0);
     return normalizeDeg(base + delta);
   })();
 
-  // Map arrow uses absolute heading: server base + device delta.
   const headingForMap = useYawOnly
-    ? normalizeDeg((deviceYaw0 ?? yawUsed) - yawUsed)
+    ? normalizeDeg(yawUsed - (deviceYaw0 ?? yawUsed))
     : effectiveHeading;
 
   // Recompute user map position from camera movement
@@ -238,18 +220,16 @@ export default function ARTab() {
     ]);
   };
 
-  const useMapbox = !!MAPBOX_TOKEN;
-
   // Reset waypoint index when a new route comes in
   useEffect(() => {
-    if (route && route.length > 0) {
+    if (!route) return;
+    if (routeIdx !== 0) {
       setRouteIdx(0);
-      setArrived(false);
-    } else {
-      setRouteIdx(0);
+    }
+    if (arrived) {
       setArrived(false);
     }
-  }, [route]);
+  }, [route, routeIdx, arrived]);
 
   // Advance waypoint when user enters the zone around current waypoint
   useEffect(() => {
@@ -279,7 +259,7 @@ export default function ARTab() {
     } else if (advanced) {
       setRouteIdx(idx);
     }
-  }, [user, route, routeIdx, arrived]);
+  }, [user, route, routeIdx, arrived, waypointRadiusPx]);
 
   // Remaining distance (m) and ETA (s)
   const remaining = React.useMemo(() => {
@@ -364,42 +344,6 @@ export default function ARTab() {
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => {
-                if (!sensorAvailable) {
-                  Alert.alert(
-                    "Sensor unavailable",
-                    "Magnetometer is not available. Use AR yaw or install expo-sensors and run on a physical device."
-                  );
-                  setUseSensor(false);
-                  return;
-                }
-                setUseSensor((v) => !v);
-              }}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                Sensor: {useSensor ? (sensorAvailable ? "ON" : "N/A") : "OFF"}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setInvertYaw180((v) => !v)}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                Yaw Inv (180°): {invertYaw180 ? "ON" : "OFF"}
-              </Text>
-            </Pressable>
-            <Pressable
               onPress={() =>
                 setAlignment((a) =>
                   a === "GravityAndHeading"
@@ -468,8 +412,7 @@ export default function ARTab() {
               >
                 <Text style={{ color: "#fff", fontSize: 11 }}>
                   yaw0:{deviceYaw0 === null ? "-" : deviceYaw0.toFixed(1)} yaw:
-                  {yawUsed.toFixed(1)} sens:
-                  {sensorAvailable ? sensorHeading.toFixed(1) : "N/A"}
+                  {yawUsed.toFixed(1)}
                 </Text>
                 <Text style={{ color: "#fff", fontSize: 11 }}>
                   headBase:{headingBase.toFixed(1)} eff:
@@ -648,79 +591,80 @@ export default function ARTab() {
         </View>
 
         {/* BOTTOM: 2D Map with overlay */}
-        <View style={{ height: half, position: 'relative' }}>
-          {useMapbox ? (
-              <IndoorMap
-                width={width}
-                height={half}
-                mapWidthPx={mapWidthPx || 675}
-                mapHeightPx={mapHeightPx || 878}
-                backgroundSource={(imageSource as any)?.uri}
-                polyline={(route && route.length)
-                  ? (() => {
-                      const idx = Math.min(routeIdx, route.length - 1);
-                      const rem = route.slice(idx);
-                      return user ? [{ x: user.x, y: user.y }, ...rem] : rem;
-                    })()
-                  : route}
-                user={user || undefined}
-                headingDeg={headingForMap}
-                debug={debug}
-                interactive={interactiveMap}
-                autoZoom={autoZoom}
-                onLongPress={(p) => {
-                  if (!user) {
-                    Alert.alert("No location", "Current location is not set yet.");
-                    return;
-                  }
-                  compute(user, { x: p.x, y: p.y });
-                }}
-                categories={categories?.map(c => ({ name: c.name, polygon: c.polygon, color: c.color }))}
-              />
-          ) : (
-            <Map2D
-              width={width}
-              height={half}
-              mapWidthPx={mapWidthPx || 675}
-              mapHeightPx={mapHeightPx || 878}
-              backgroundSource={imageSource}
-              polyline={(route && route.length)
+        <View style={{ height: half, position: "relative" }}>
+          <Map2D
+            width={width}
+            height={half}
+            mapWidthPx={mapWidthPx || 675}
+            mapHeightPx={mapHeightPx || 878}
+            backgroundSource={imageSource}
+            polyline={
+              route && route.length
                 ? (() => {
                     const idx = Math.min(routeIdx, route.length - 1);
                     const rem = route.slice(idx);
                     return user ? [{ x: user.x, y: user.y }, ...rem] : rem;
                   })()
-                : route}
-              user={user}
-              headingDeg={headingForMap}
-              headingInvert={false}
-              roundMask
-              rotateMap
-              centerOnUser
-              debug={debug}
-              categories={categories?.map(c => ({ name: c.name, polygon: c.polygon, color: c.color }))}
-              onLongPress={(p) => {
-                if (!user) {
-                  Alert.alert("No location", "Current location is not set yet.");
-                  return;
-                }
-                compute(user, { x: p.x, y: p.y });
+                : route
+            }
+            user={user}
+            headingDeg={headingForMap}
+            headingInvert={true}
+            roundMask
+            rotateMap={rotateMap}
+            centerOnUser={false}
+            debug={debug}
+            categories={categories?.map((c) => ({
+              name: c.name,
+              polygon: c.polygon,
+              color: c.color,
+            }))}
+            onLongPress={(p) => {
+              if (!user) {
+                Alert.alert("No location", "Current location is not set yet.");
+                return;
+              }
+              compute(user, { x: p.x, y: p.y });
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              top: 8,
+              left: 8,
+              right: 8,
+              flexDirection: "row",
+              gap: 8,
+              justifyContent: "space-between",
+            }}
+            pointerEvents="box-none"
+          >
+            <View
+              style={{
+                backgroundColor: "#000000aa",
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 8,
               }}
-            />
-          )}
-          {/* Overlay: remaining distance + ETA and controls */}
-          <View style={{ position: 'absolute', top: 8, left: 8, right: 8, flexDirection: 'row', gap: 8, justifyContent: 'space-between' }} pointerEvents="box-none">
-            <View style={{ backgroundColor: '#000000aa', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-              <Text style={{ color: '#fff', fontSize: 12 }}>
-                Rem: {remaining.meters.toFixed(1)} m  ETA: {Math.floor(remaining.seconds/60)}m {Math.round(remaining.seconds%60)}s
+            >
+              <Text style={{ color: "#fff", fontSize: 12 }}>
+                Rem: {remaining.meters.toFixed(1)} m ETA: {
+                Math.floor(remaining.seconds / 60)}m {Math.round(remaining.seconds % 60)}s
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              <Pressable onPress={() => setInteractiveMap(v => !v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-                <Text style={{ color: '#fff', fontSize: 12 }}>Gestures: {interactiveMap ? 'ON' : 'OFF'}</Text>
-              </Pressable>
-              <Pressable onPress={() => setAutoZoom(v => !v)} style={{ backgroundColor: '#00000088', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-                <Text style={{ color: '#fff', fontSize: 12 }}>AutoZoom: {autoZoom ? 'ON' : 'OFF'}</Text>
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              <Pressable
+                onPress={() => setRotateMap((v: boolean) => !v)}
+                style={{
+                  backgroundColor: "#00000088",
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>
+                  Rotate Map: {rotateMap ? "ON" : "OFF"}
+                </Text>
               </Pressable>
             </View>
           </View>

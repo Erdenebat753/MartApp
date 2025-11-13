@@ -128,7 +128,15 @@ export default function AdminLayout({ route, children, onLogout }) {
           />
         )}
       </aside>
-      <main style={{ padding: 16, marginLeft: effWidth }}>
+      <main
+        style={{
+          padding: route === "map" ? 0 : 16,
+          marginLeft: route === "map" ? 0 : effWidth,
+          width: route === "map" ? "100vw" : undefined,
+          height: route === "map" ? "100vh" : undefined,
+          overflow: route === "map" ? "hidden" : undefined,
+        }}
+      >
         {children}
       </main>
     </div>

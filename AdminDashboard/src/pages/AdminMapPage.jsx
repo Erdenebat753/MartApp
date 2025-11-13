@@ -234,9 +234,17 @@ export default function AdminMapPage() {
   }
 
   const handleMapClick = useCallback(
-    async (e) => {
-      const rect = containerRef.current.getBoundingClientRect();
-      let p = toMapCoords(e.clientX, e.clientY, rect);
+    async (eOrPoint) => {
+      let p;
+      if (typeof eOrPoint?.clientX === 'number' && typeof eOrPoint?.clientY === 'number') {
+        const rect = containerRef.current.getBoundingClientRect();
+        p = toMapCoords(eOrPoint.clientX, eOrPoint.clientY, rect);
+      } else if (typeof eOrPoint?.x === 'number' && typeof eOrPoint?.y === 'number') {
+        // MapCanvas now passes map coords directly when available
+        p = { x: eOrPoint.x, y: eOrPoint.y };
+      } else {
+        return;
+      }
       const maxW = mapWidthPx ?? Number.POSITIVE_INFINITY;
       const maxH = mapHeightPx ?? Number.POSITIVE_INFINITY;
       p.x = Math.max(0, Math.min(maxW, p.x));

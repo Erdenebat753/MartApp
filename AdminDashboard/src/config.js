@@ -13,3 +13,5 @@ export const DISPLAY_HEIGHT = Math.round(MAP_HEIGHT_PX * SCALE);
 // Snapping threshold in map pixels (not display pixels)
 export const SNAP_THRESHOLD_PX = 10;
 
+// Map scale for grid: pixels per meter (dashboard view)
+export const PIXELS_PER_METER = 100;

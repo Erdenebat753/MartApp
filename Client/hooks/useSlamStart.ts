@@ -17,7 +17,11 @@ export function useSlamStart(
         if (j) {
           log.debug('[useSlamStart] slam_start from API:', j);
           setUser({ x: Number(j.x), y: Number(j.y) });
-          setHeading(Number(j.heading_deg || 0));
+          // Admin stores 0° = +X (east). Client uses 0° = up/north.
+          const raw = Number(j.heading_deg || 0);
+          let conv = (raw + 90) % 360;
+          if (conv < 0) conv += 360;
+          setHeading(conv);
           initialized.current = true;
         }
       } catch (e) {
