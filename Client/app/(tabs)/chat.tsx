@@ -143,7 +143,7 @@ export default function ChatTab() {
       .filter((r) => checkedIds[r.id])
       .map((r) => Number(r.id));
     if (toAdd.length === 0) {
-      setStatusMessage("선택된 항목이 없습니다.");
+      setStatusMessage("Please select at least one item.");
       return;
     }
     let listId = selectedListId;
@@ -155,7 +155,7 @@ export default function ChatTab() {
     try {
       setAdding(true);
       await appendItems(listId!, toAdd);
-      setStatusMessage("목록에 추가되었습니다.");
+      setStatusMessage("Items added to the list.");
       setError(null);
     } catch (e: any) {
       setStatusMessage(null);
@@ -216,38 +216,252 @@ export default function ChatTab() {
         </View>
 
         {error && (
-          <Text style={{ color: "#ff6b6b", marginTop: 8 }}>오류: {error}</Text>
+          <Text style={{ color: "#ff6b6b", marginTop: 8 }}>
+            에러: {error}
+          </Text>
         )}
 
         <ScrollView style={{ marginTop: 12 }}>
           {resp && (
             <View
-              style={{ backgroundColor: "#111", borderRadius: 8, padding: 12 }}
+              style={{
+                backgroundColor: "#111",
+                borderRadius: 12,
+                padding: 16,
+                gap: 10,
+              }}
             >
-              <Text style={{ color: "#aaa", marginBottom: 6 }}>
-                의도: <Text style={{ color: "#fff" }}>{resp.intent}</Text>
+              <Text style={{ color: "#aaa", marginBottom: 4 }}>
+                Intent: <Text style={{ color: "#fff" }}>{resp.intent}</Text>
               </Text>
-              <Text style={{ color: "#fff", marginBottom: 10 }}>
-                {resp.reply}
-              </Text>
-              {resolved.length > 0 && (
-                <View style={{ gap: 6 }}>
-                  <Text style={{ color: "#aaa" }}>항목:</Text>
-                  {resolved.map(({ id, item }) => (
-                    <Text key={id} style={{ color: "#fff" }}>
-                      #{id} • {item?.name ?? "Unknown"}
+              <Text style={{ color: "#fff" }}>{resp.reply}</Text>
+              {resolved.length > 0 ? (
+                <>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginTop: 6,
+                    }}
+                  >
+                    <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+                      Matches: {resolved.length}
                     </Text>
-                  ))}
-                </View>
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                      <Pressable
+                        onPress={checkAll}
+                        style={{
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: "#2e8b57",
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                        }}
+                      >
+                        <Text style={{ color: "#fff", fontSize: 12 }}>
+                          Check all
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={clearAll}
+                        style={{
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: "#444",
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                        }}
+                      >
+                        <Text style={{ color: "#fff", fontSize: 12 }}>
+                          Clear selection
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <Text style={{ color: "#777", fontSize: 12 }}>
+                    Selected: {checkedCount}/{resolved.length}
+                  </Text>
+                  <View style={{ marginTop: 10, gap: 10 }}>
+                    {resolved.map(({ id, item }) => {
+                      const uri = resolveImageUrl(item?.image_url || null);
+                      const price = effectivePrice(item);
+                      const basePrice = Math.round(
+                        Number(item?.price ?? 0) || 0
+                      );
+                      const salePercent = item?.sale_percent;
+                      const saleEndDate = item?.sale_end_at
+                        ? new Date(item.sale_end_at)
+                        : null;
+                      const now = new Date();
+                      const saleActive =
+                        salePercent != null &&
+                        salePercent > 0 &&
+                        (!saleEndDate || now <= saleEndDate);
+                      const saleEndsLabel = saleEndDate
+                        ? saleEndDate.toLocaleString("ko-KR", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : null;
+                      const isChecked = Boolean(checkedIds[id]);
+                      return (
+                        <Pressable
+                          key={id}
+                          onPress={() => toggleCheck(id)}
+                          style={{
+                            backgroundColor: "#1a1a1f",
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: isChecked ? "#1e90ff" : "#2b2e38",
+                            padding: 12,
+                          }}
+                        >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 12,
+                            }}
+                          >
+                            {uri ? (
+                              <Image
+                                source={{ uri }}
+                                style={{
+                                  width: 64,
+                                  height: 64,
+                                  borderRadius: 12,
+                                  backgroundColor: "#222",
+                                }}
+                              />
+                            ) : (
+                              <View
+                                style={{
+                                  width: 64,
+                                  height: 64,
+                                  borderRadius: 12,
+                                  backgroundColor: "#222",
+                                }}
+                              />
+                            )}
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{
+                                  color: "#fff",
+                                  fontWeight: "600",
+                                  marginBottom: 4,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {item?.name ?? `#${id}`}
+                              </Text>
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 6,
+                                }}
+                              >
+                                {saleActive && (
+                                  <Text
+                                    style={{
+                                      color: "#9ca3af",
+                                      fontSize: 12,
+                                      textDecorationLine: "line-through",
+                                    }}
+                                  >
+                                    {fmtPrice(basePrice)}
+                                  </Text>
+                                )}
+                                <Text
+                                  style={{
+                                    color: "#e5e7eb",
+                                    fontSize: 14,
+                                    fontWeight: "600",
+                                  }}
+                                >
+                                  {fmtPrice(price)}
+                                </Text>
+                              </View>
+                              {item?.note && (
+                                <Text
+                                  style={{
+                                    color: "#7c88a1",
+                                    fontSize: 12,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {item.note}
+                                </Text>
+                              )}
+                              {item?.description && (
+                                <Text
+                                  style={{
+                                    color: "#7c88a1",
+                                    fontSize: 12,
+                                    marginTop: 2,
+                                  }}
+                                  numberOfLines={2}
+                                >
+                                  {item.description}
+                                </Text>
+                              )}
+                              {saleActive && salePercent != null && (
+                                <Text
+                                  style={{ color: "#fbbf24", fontSize: 12 }}
+                                >
+                                  -{salePercent}% 할인 {saleEndsLabel ? `· ${saleEndsLabel}까지` : "· 종료일 미정"}
+                                </Text>
+                              )}
+                            </View>
+                            <View
+                              style={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: 6,
+                                borderWidth: 1,
+                                borderColor: isChecked ? "#1e90ff" : "#444",
+                                justifyContent: "center",
+                                alignItems: "center",
+                              }}
+                            >
+                              {isChecked && (
+                                <View
+                                  style={{
+                                    width: 12,
+                                    height: 12,
+                                    borderRadius: 3,
+                                    backgroundColor: "#1e90ff",
+                                  }}
+                                />
+                              )}
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : (
+                <Text style={{ color: "#999" }}>No matching items.</Text>
               )}
-              {resp.intent === "recommendation" && resolved.length > 0 && (
-                <View style={{ marginTop: 12, gap: 8 }}>
-                  <Text style={{ color: "#aaa" }}>Add to list:</Text>
-                  {/* Simple picker substitute */}
+              {resolved.length > 0 && (
+                <>
+                  <Text
+                    style={{
+                      color: "#9ca3af",
+                      fontSize: 12,
+                      marginTop: 6,
+                    }}
+                  >
+                    Only checked items will be added to a list.
+                  </Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    style={{ flexGrow: 0 }}
+                    style={{ flexGrow: 0, marginTop: 6 }}
                   >
                     {safeLists.map((l, i) => {
                       const lid = (l as any)?.id ?? i;
@@ -272,54 +486,68 @@ export default function ChatTab() {
                           }}
                         >
                           <Text style={{ color: "#fff" }}>
-                            {lname || `목록 #${lid}`}
+                            {lname || `List #${lid}`}
                           </Text>
                         </Pressable>
                       );
                     })}
                     <Pressable
                       onPress={async () => {
-                        const l = await create("새 목록");
+                        const l = await create("추천 목록");
                         setSelectedListId(l.id);
                       }}
                       style={{
-                        backgroundColor: "#2e8b57",
+                        backgroundColor: "#4f9f70",
                         borderRadius: 16,
                         paddingHorizontal: 12,
                         paddingVertical: 6,
+                        marginRight: 8,
                       }}
                     >
-                      <Text style={{ color: "#fff" }}>+ 새</Text>
+                      <Text style={{ color: "#fff" }}>+ New list</Text>
                     </Pressable>
                   </ScrollView>
                   <Pressable
                     onPress={addToSelectedList}
+                    disabled={adding}
                     style={{
-                      backgroundColor: "#2e8b57",
-                      borderRadius: 8,
-                      paddingVertical: 10,
+                      marginTop: 8,
+                      backgroundColor: adding ? "#567c59" : "#2e8b57",
+                      borderRadius: 10,
+                      paddingVertical: 12,
                       alignItems: "center",
                     }}
                   >
                     <Text style={{ color: "#fff", fontWeight: "700" }}>
-                      항목 추가
+                      {adding ? "Adding..." : "Add selected items"}
                     </Text>
                   </Pressable>
-                </View>
+                  {statusMessage && (
+                    <Text
+                      style={{
+                        color: "#80ffb3",
+                        fontSize: 12,
+                        marginTop: 4,
+                      }}
+                    >
+                      {statusMessage}
+                    </Text>
+                  )}
+                </>
               )}
               {resolved.length > 0 && (
                 <Pressable
                   onPress={routeToFirst}
                   style={{
-                    marginTop: 12,
+                    marginTop: 8,
                     backgroundColor: "#1e90ff",
-                    borderRadius: 8,
-                    paddingVertical: 10,
+                    borderRadius: 10,
+                    paddingVertical: 12,
                     alignItems: "center",
                   }}
                 >
                   <Text style={{ color: "#fff", fontWeight: "700" }}>
-                    첫 결과로 경로 이동
+                    Go to first result
                   </Text>
                 </Pressable>
               )}

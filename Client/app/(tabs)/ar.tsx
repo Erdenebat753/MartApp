@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Dimensions,
@@ -19,6 +19,9 @@ import { useRouteCompute } from "../../hooks/useRoute";
 import { API_BASE } from "../../constants/api";
 import type { Item } from "../../src/types";
 import { useMartMeta } from "../../hooks/useMartMeta";
+import { useLists } from "../../hooks/useLists";
+import { useRouter } from "expo-router";
+import { useLists } from "../../hooks/useLists";
 
 const YAW_STABLE_EPS = 0.05;
 const POS_STABLE_EPS = 1e-4;
@@ -62,9 +65,17 @@ export default function ARTab() {
   const yawSmoothRef = React.useRef<number>(0);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
-  const { route, compute, clear } = useRouteCompute();
+  const { route, compute, clear, setPolyline } = useRouteCompute();
   const [routeIdx, setRouteIdx] = useState<number>(0);
   const [arrived, setArrived] = useState<boolean>(false);
+  const { lists } = useLists();
+  const safeLists = useMemo(() => (Array.isArray(lists) ? (lists as any[]) : []), [lists]);
+  const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [listRouteLoading, setListRouteLoading] = useState(false);
+  const [listRouteMessage, setListRouteMessage] = useState<string | null>(null);
+  const router = useRouter();
+  const [pendingListId, setPendingListId] = useState<number | null>(null);
+  const [pendingListId, setPendingListId] = useState<number | null>(null);
   // Waypoint capture radius: 1 meter expressed in pixels using current ppm
   const waypointRadiusPx = 1.0 * ppm; // 1m zone
   const [debug, setDebug] = useState(false);
@@ -84,6 +95,25 @@ export default function ARTab() {
   React.useEffect(() => { slamStartRef.current = slamStart; });
   React.useEffect(() => { camStartRef.current = camStart; });
   React.useEffect(() => { deviceYaw0Ref.current = deviceYaw0; });
+  React.useEffect(() => {
+    if (selectedListId == null && safeLists.length > 0) {
+      const idVal = (safeLists[0] as any)?.id;
+      if (typeof idVal === "number") {
+        setSelectedListId(idVal);
+      }
+    }
+  }, [safeLists, selectedListId]);
+
+  React.useEffect(() => {
+    const state = router.getState();
+    const params = state?.routes?.[state.routes.length - 1]?.params as { listId?: string };
+    const idParam = params?.listId;
+    const parsed = idParam != null ? Number(idParam) : NaN;
+    if (!Number.isNaN(parsed)) {
+      setSelectedListId(parsed);
+      setPendingListId(parsed);
+    }
+  }, [router, safeLists.length]);
 
   const schedulePoseFlush = React.useCallback(() => {
     if (poseFrameHandleRef.current != null) return;
@@ -297,46 +327,96 @@ export default function ARTab() {
     ]);
   };
 
+  const handleRouteList = React.useCallback(async (forceListId?: number) => {
+    if (!user) {
+      Alert.alert("No location", "Current location is not set yet.");
+      return;
+    }
+    const targetListId = forceListId ?? selectedListId;
+    if (!targetListId) {
+      setListRouteMessage("Select a list first.");
+      return;
+    }
+    const list = safeLists.find((l) => (l as any)?.id === targetListId);
+    const ids = Array.isArray(list?.item_ids) ? list?.item_ids : [];
+    if (!ids.length) {
+      setListRouteMessage("Selected list contains no items.");
+      return;
+    }
+    setListRouteLoading(true);
+    setListRouteMessage(null);
+    try {
+      const payload = { user: { x: user.x, y: user.y }, item_ids: ids };
+      const res = await fetch(`${API_BASE}/api/route/list`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Route request failed");
+      }
+      const data = await res.json();
+      if (Array.isArray(data?.polyline)) {
+        setPolyline(data.polyline);
+      }
+      setRouteIdx(0);
+      setArrived(false);
+      setListRouteMessage(`Routing ${data?.ordered_ids?.length ?? ids.length} item(s).`);
+    } catch (e: any) {
+      setListRouteMessage(e?.message || "Route generation failed.");
+    } finally {
+      setListRouteLoading(false);
+    }
+  }, [selectedListId, safeLists, user, setPolyline]);
+
+  React.useEffect(() => {
+    if (pendingListId && user) {
+      handleRouteList(pendingListId);
+      setPendingListId(null);
+    }
+  }, [pendingListId, user, handleRouteList]);
+
   // Reset waypoint index when a new route comes in
   useEffect(() => {
     if (!route) return;
-    if (routeIdx !== 0) {
-      setRouteIdx(0);
-    }
-    if (arrived) {
-      setArrived(false);
-    }
-  }, [route, routeIdx, arrived]);
+    setRouteIdx(0);
+    setArrived(false);
+  }, [route]);
 
   // Advance waypoint when user enters the zone around current waypoint
   useEffect(() => {
     if (!user || !route || route.length === 0) return;
-    let idx = routeIdx;
-    // Guard index within bounds
-    if (idx < 0) idx = 0;
-    if (idx >= route.length) idx = route.length - 1;
+    setRouteIdx((prevIdx) => {
+      let idx = prevIdx;
+      // Guard index within bounds
+      if (idx < 0) idx = 0;
+      if (idx >= route.length) idx = route.length - 1;
 
-    let advanced = false;
-    while (idx < route.length) {
-      const wp = route[idx];
-      const dx = user.x - wp.x;
-      const dy = user.y - wp.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= waypointRadiusPx) {
-        idx += 1;
-        advanced = true;
-        continue;
+      let advanced = false;
+      while (idx < route.length) {
+        const wp = route[idx];
+        const dx = user.x - wp.x;
+        const dy = user.y - wp.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= waypointRadiusPx) {
+          idx += 1;
+          advanced = true;
+          continue;
+        }
+        break;
       }
-      break;
-    }
 
-    if (idx >= route.length) {
-      if (!arrived) setArrived(true);
-      setRouteIdx(route.length - 1);
-    } else if (advanced) {
-      setRouteIdx(idx);
-    }
-  }, [user, route, routeIdx, arrived, waypointRadiusPx]);
+      if (idx >= route.length) {
+        setArrived(true);
+        return route.length - 1;
+      } else if (advanced) {
+        setArrived(false);
+        return idx;
+      }
+      return prevIdx;
+    });
+  }, [user, route, waypointRadiusPx]);
 
   // Remaining distance (m) and ETA (s)
   const remaining = React.useMemo(() => {
@@ -746,6 +826,73 @@ export default function ARTab() {
             </View>
           </View>
         </View>
+        {safeLists.length > 0 && (
+          <View
+            style={{
+              backgroundColor: "#0d0d14",
+              borderTopWidth: 1,
+              borderTopColor: "#1f2937",
+              padding: 12,
+            }}
+          >
+            <Text
+              style={{ color: "#9ca3af", fontSize: 12, marginBottom: 6 }}
+            >
+              Lists
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ flexGrow: 0, marginBottom: 10 }}
+            >
+              {safeLists.map((l, i) => {
+                const lid = (l as any)?.id ?? i;
+                const lname = (l as any)?.name;
+                const isSel = selectedListId === lid;
+                return (
+                  <Pressable
+                    key={String(lid)}
+                    onPress={() => {
+                      if (typeof lid === "number") setSelectedListId(lid);
+                    }}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: isSel ? "#1e90ff" : "#333",
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      marginRight: 8,
+                    }}
+                  >
+                    <Text style={{ color: "#fff" }}>
+                      {lname || `List #${lid}`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+              <Pressable
+                onPress={() => handleRouteList()}
+                disabled={listRouteLoading || !safeLists.length}
+                style={{
+                backgroundColor: listRouteLoading ? "#425e4f" : "#2e8b57",
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                {listRouteLoading ? "Routing..." : "Route selected list"}
+              </Text>
+            </Pressable>
+            {listRouteMessage && (
+              <Text style={{ color: "#80ffb3", fontSize: 12, marginTop: 6 }}>
+                {listRouteMessage}
+              </Text>
+            )}
+          </View>
+        )}
+
         {!imageSource && (
           <View
             style={{

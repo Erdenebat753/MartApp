@@ -15,6 +15,8 @@ from schemas import (
     RoutePolylineResponse,
     RoutePlanRequest,
     RoutePlanResponse,
+    RouteListRequest,
+    RouteListResponse,
 )
 
 router = APIRouter(prefix="/api/route", tags=["route"])
@@ -419,6 +421,70 @@ async def plan_multistop(req: RoutePlanRequest, db: AsyncSession = Depends(get_d
     return RoutePlanResponse(
         ordered_ids=[it.id for it in order],
         polyline=[RoutePoint(x=p[0], y=p[1]) for p in combined]
+    )
+
+@router.post("/list", response_model=RouteListResponse)
+async def route_from_list(req: RouteListRequest, db: AsyncSession = Depends(get_db)):
+    if not req.item_ids:
+        return RouteListResponse(ordered_ids=[], polyline=[])
+
+    res = await db.execute(select(Segment))
+    seg_rows = res.scalars().all()
+    polylines: List[List[Tuple[float, float]]] = []
+    for r in seg_rows:
+        try:
+            pl = json.loads(r.polyline_json)
+            pts = [(float(p["x"]), float(p["y"])) for p in pl]
+            if len(pts) >= 2:
+                polylines.append(pts)
+        except Exception:
+            continue
+    if not polylines:
+        raise HTTPException(status_code=500, detail="Route graph unavailable")
+
+    graph, coords_by_key = _build_graph(polylines)
+    _connect_nearby_nodes(graph, coords_by_key, eps=20.0)
+
+    ires = await db.execute(select(Item))
+    items_map = {it.id: it for it in ires.scalars().all()}
+    ordered_items: List[Item] = []
+    for item_id in req.item_ids:
+        it = items_map.get(item_id)
+        if not it:
+            raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+        ordered_items.append(it)
+
+    current = (req.user.x, req.user.y)
+    combined: List[Tuple[float, float]] = []
+    for idx, it in enumerate(ordered_items):
+        dest = (float(it.x), float(it.y))
+        leg = _shortest_polyline_between(current, dest, graph, coords_by_key, polylines)
+        if not leg:
+            current = dest
+            continue
+        if not combined:
+            combined.extend(leg)
+        else:
+            if combined[-1] == leg[0]:
+                combined.extend(leg[1:])
+            else:
+                combined.extend(leg)
+        current = dest
+
+    if not combined:
+        return RouteListResponse(
+            ordered_ids=[it.id for it in ordered_items],
+            polyline=[RoutePoint(x=req.user.x, y=req.user.y)],
+        )
+
+    cleaned: List[Tuple[float, float]] = []
+    for pt in combined:
+        if not cleaned or abs(cleaned[-1][0] - pt[0]) > 1e-6 or abs(cleaned[-1][1] - pt[1]) > 1e-6:
+            cleaned.append(pt)
+
+    return RouteListResponse(
+        ordered_ids=[it.id for it in ordered_items],
+        polyline=[RoutePoint(x=p[0], y=p[1]) for p in cleaned],
     )
     def qkey(x: float, y: float, prec: int = 4) -> str:
         return f"{round(x, prec):.{prec}f},{round(y, prec):.{prec}f}"

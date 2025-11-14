@@ -589,9 +589,13 @@ export default function HomePage() {
                 <HStack space={2} mt={2.5}>
                   <Button
                     colorScheme="info"
-                    onPress={() =>
-                      router.push({ pathname: "/(tabs)/ar", params: {} })
-                    }
+                    onPress={() => {
+                      const idVal = (l as any)?.id;
+                      router.push({
+                        pathname: "/(tabs)/ar",
+                        params: idVal != null ? { listId: String(idVal) } : {},
+                      });
+                    }}
                   >
                     AR 열기
                   </Button>

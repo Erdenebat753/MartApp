@@ -31,6 +31,7 @@ export function useRouteCompute() {
   };
 
   const clear = () => setRoute([]);
+  const setPolyline = (polyline: {x:number;y:number}[]) => setRoute(polyline);
 
-  return { route, loading, error, compute, clear };
+  return { route, loading, error, compute, clear, setPolyline };
 }

@@ -141,6 +141,14 @@ class RoutePlanRequest(BaseModel):
 class RoutePlanResponse(BaseModel):
     ordered_ids: List[int]
     polyline: List[RoutePoint]
+
+class RouteListRequest(BaseModel):
+    user: RoutePoint
+    item_ids: List[int]
+
+class RouteListResponse(BaseModel):
+    ordered_ids: List[int]
+    polyline: List[RoutePoint]
 #
 # SLAM START (separate minimal schema)
 #

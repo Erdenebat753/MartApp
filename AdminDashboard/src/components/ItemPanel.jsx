@@ -47,6 +47,47 @@ export default function ItemPanel({
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, [dragging, resizing, size.width, size.height, pos.left, pos.top]);
 
+  const now = useMemo(() => new Date(), []);
+  const [saleEndMonth, setSaleEndMonth] = useState(() => now.getMonth() + 1);
+  const [saleEndDay, setSaleEndDay] = useState("15");
+
+  useEffect(() => {
+    if (!newItem.sale_end_at) {
+      setSaleEndMonth(now.getMonth() + 1);
+      setSaleEndDay("15");
+      return;
+    }
+    const dt = new Date(newItem.sale_end_at);
+    if (Number.isFinite(dt.getTime())) {
+      setSaleEndMonth(dt.getMonth() + 1);
+      setSaleEndDay(String(dt.getDate()));
+    }
+  }, [newItem.sale_end_at, now]);
+
+  const toLocalInputValue = (date) => {
+    const tz = date.getTimezoneOffset();
+    const local = new Date(date.getTime() - tz * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const handleQuickSaleApply = () => {
+    const monthNum = Math.min(12, Math.max(1, Number(saleEndMonth) || 1));
+    const dayNum = Math.min(31, Math.max(1, Number(saleEndDay) || 15));
+    const currentYear = now.getFullYear();
+    let targetYear = currentYear;
+    if (monthNum < now.getMonth() + 1) {
+      targetYear += 1;
+    }
+    const dt = new Date(targetYear, monthNum - 1, dayNum, 23, 59, 0);
+    const value = toLocalInputValue(dt);
+    setNewItem((prev) => ({ ...prev, sale_end_at: value }));
+  };
+
+  const monthOptions = useMemo(
+    () => Array.from({ length: 12 }, (_, idx) => idx + 1),
+    []
+  );
+
   return (
     <div
       onMouseDown={(e)=>e.stopPropagation()}
@@ -233,43 +274,3 @@ export default function ItemPanel({
     </div>
   );
 }
-  const now = useMemo(() => new Date(), []);
-  const [saleEndMonth, setSaleEndMonth] = useState(() => now.getMonth() + 1);
-  const [saleEndDay, setSaleEndDay] = useState("15");
-
-  useEffect(() => {
-    if (!newItem.sale_end_at) {
-      setSaleEndMonth(now.getMonth() + 1);
-      setSaleEndDay("15");
-      return;
-    }
-    const dt = new Date(newItem.sale_end_at);
-    if (Number.isFinite(dt.getTime())) {
-      setSaleEndMonth(dt.getMonth() + 1);
-      setSaleEndDay(String(dt.getDate()));
-    }
-  }, [newItem.sale_end_at, now]);
-
-  const toLocalInputValue = (date) => {
-    const tz = date.getTimezoneOffset();
-    const local = new Date(date.getTime() - tz * 60000);
-    return local.toISOString().slice(0, 16);
-  };
-
-  const handleQuickSaleApply = () => {
-    const monthNum = Math.min(12, Math.max(1, Number(saleEndMonth) || 1));
-    const dayNum = Math.min(31, Math.max(1, Number(saleEndDay) || 15));
-    const currentYear = now.getFullYear();
-    let targetYear = currentYear;
-    if (monthNum < now.getMonth() + 1) {
-      targetYear += 1;
-    }
-    const dt = new Date(targetYear, monthNum - 1, dayNum, 23, 59, 0);
-    const value = toLocalInputValue(dt);
-    setNewItem((prev) => ({ ...prev, sale_end_at: value }));
-  };
-
-  const monthOptions = useMemo(
-    () => Array.from({ length: 12 }, (_, idx) => idx + 1),
-    []
-  );
