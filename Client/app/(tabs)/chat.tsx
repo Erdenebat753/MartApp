@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { View, Text, TextInput, Pressable, ScrollView } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, TextInput, Pressable, ScrollView, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { API_BASE } from "../../constants/api";
@@ -26,6 +26,9 @@ export default function ChatTab() {
   const { lists, create, appendItems } = useLists();
   const safeLists = Array.isArray(lists) ? (lists as any[]) : ([] as any[]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Record<number, boolean>>({});
+  const [adding, setAdding] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   // Initialize user from slam start (no polling here)
   useSlamStart(
@@ -42,6 +45,64 @@ export default function ChatTab() {
       item: any;
     }[];
   }, [resp, items]);
+
+  const resolveImageUrl = (raw?: string | null): string | null => {
+    if (!raw || raw.length === 0) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return `${API_BASE}${raw.startsWith("/") ? "" : "/"}${raw}`;
+  };
+
+  const fmtPrice = (value?: number | null) => {
+    if (value == null) return "-";
+    try {
+      return Math.round(Number(value)).toLocaleString() + " ₩";
+    } catch {
+      return String(value);
+    }
+  };
+
+  const effectivePrice = (it: any) => {
+    const base = Math.round(Number(it?.price ?? 0) || 0);
+    const sp = it?.sale_percent;
+    if (sp != null && sp > 0) {
+      return Math.max(0, Math.round(base * (1 - Number(sp) / 100)));
+    }
+    return base;
+  };
+
+  useEffect(() => {
+    if (resp?.item_ids?.length) {
+      const next: Record<number, boolean> = {};
+      resp.item_ids.forEach((id) => {
+        next[id] = true;
+      });
+      setCheckedIds(next);
+    } else {
+      setCheckedIds({});
+    }
+    setStatusMessage(null);
+  }, [resp]);
+
+  const toggleCheck = (id: number) => {
+    setCheckedIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  const checkAll = () => {
+    const next: Record<number, boolean> = {};
+    resolved.forEach(({ id }) => {
+      next[id] = true;
+    });
+    setCheckedIds(next);
+  };
+
+  const clearAll = () => {
+    setCheckedIds({});
+  };
+
+  const checkedCount = resolved.filter((r) => checkedIds[r.id]).length;
 
   const ask = async () => {
     const t = text.trim();
@@ -77,15 +138,31 @@ export default function ChatTab() {
   };
 
   const addToSelectedList = async () => {
-    if (!resp || !resp.item_ids?.length) return;
+    if (!resp) return;
+    const toAdd = resolved
+      .filter((r) => checkedIds[r.id])
+      .map((r) => Number(r.id));
+    if (toAdd.length === 0) {
+      setStatusMessage("선택된 항목이 없습니다.");
+      return;
+    }
     let listId = selectedListId;
     if (!listId) {
-      // Create default list if none selected
       const l = await create("Recommendations");
       listId = l.id;
       setSelectedListId(listId);
     }
-    await appendItems(listId!, resp.item_ids);
+    try {
+      setAdding(true);
+      await appendItems(listId!, toAdd);
+      setStatusMessage("목록에 추가되었습니다.");
+      setError(null);
+    } catch (e: any) {
+      setStatusMessage(null);
+      setError(e?.message || String(e));
+    } finally {
+      setAdding(false);
+    }
   };
 
   return (

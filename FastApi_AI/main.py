@@ -12,8 +12,7 @@ from routers import marts
 from routers import lists
 from routers import categories
 from routers import auth
-from fastapi.staticfiles import StaticFiles
-import os
+from routers import uploads
 
 app = FastAPI(
     title="Store Indoor Navigation API",
@@ -40,6 +39,7 @@ app.include_router(marts.router)
 app.include_router(lists.router)
 app.include_router(categories.router)
 app.include_router(auth.router)
+app.include_router(uploads.router)
 
 # Эхний удаа dev орчинд table-уудыг автоматаар үүсгэхэд ашиглаж болно
 # (Prod дээр alembic migration руу шилжинэ)
@@ -104,22 +104,6 @@ async def on_startup():
                 await conn3.execute(delete(Item).where(Item.type == 'slam_start'))
     except Exception:
         pass
-    # Ensure uploads directory exists for static serving
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        upload_dir = os.path.join(base_dir, "uploads")
-        os.makedirs(upload_dir, exist_ok=True)
-    except Exception:
-        pass
-
-# Mount static for uploads
-base_dir = os.path.dirname(os.path.abspath(__file__))
-upload_dir = os.path.join(base_dir, "uploads")
-try:
-    os.makedirs(upload_dir, exist_ok=True)
-except Exception:
-    pass
-app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", reload=True)

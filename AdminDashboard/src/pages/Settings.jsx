@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getMarts, createMart, uploadMartImage } from "../api";
+import { getMarts, createMart, uploadMartImage, deleteMart } from "../api";
 import { getSelectedMartId, setSelectedMartId } from "../hooks/martSelection";
 import { useMart } from "../context/MartContext";
 
@@ -8,6 +8,7 @@ export default function SettingsPage() {
   const [selected, setSelected] = useState(getSelectedMartId());
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: "",
     longitude: "",
@@ -21,6 +22,12 @@ export default function SettingsPage() {
       try {
         const list = await getMarts();
         setMarts(list);
+        setSelected((prev) => {
+          if (prev != null && list.some((m) => m.id === prev)) {
+            return prev;
+          }
+          return list[0]?.id ?? null;
+        });
       } catch {}
     })();
   }, []);
@@ -62,6 +69,30 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleDeleteMart() {
+    if (selected == null) {
+      alert("Select a mart to delete");
+      return;
+    }
+    const target = marts.find((m) => m.id === selected);
+    const ok = window.confirm(`Delete mart "${target?.name || selected}"?`);
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteMart(selected);
+      const list = await getMarts();
+      setMarts(list);
+      const next = list[0]?.id ?? null;
+      setSelected(next);
+      setSelectedMartId(next ?? null);
+      selectMart(next ?? null);
+    } catch (e) {
+      alert("Delete failed: " + (e?.message || e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Settings</h2>
@@ -77,6 +108,9 @@ export default function SettingsPage() {
             </select>
             <button onClick={saveSelection} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button onClick={handleDeleteMart} disabled={selected == null || deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
             </button>
             <button onClick={() => { if (selected != null) { setSelectedMartId(selected); window.location.hash = '#map'; } }} disabled={selected == null}>
               Open Map Editor
@@ -127,4 +161,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

@@ -27,6 +27,35 @@ import { API_BASE } from "../config";
 import { useMart } from "../context/MartContext";
 import ItemsSidebar from "../components/ItemsSidebar";
 
+function pointInPolygon(point, polygon = []) {
+  if (!Array.isArray(polygon) || polygon.length < 3) return false;
+  const x = Number(point.x);
+  const y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const current = polygon[i] || {};
+    const prev = polygon[j] || {};
+    const xi = Number(current.x);
+    const yi = Number(current.y);
+    const xj = Number(prev.x);
+    const yj = Number(prev.y);
+    if (
+      !Number.isFinite(xi) ||
+      !Number.isFinite(yi) ||
+      !Number.isFinite(xj) ||
+      !Number.isFinite(yj)
+    ) {
+      continue;
+    }
+    const intersects =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
 // toDisplay and toMapCoords will use dynamic scale (computed per mart)
 
 export default function AdminMapPage() {
@@ -62,6 +91,7 @@ export default function AdminMapPage() {
     heading_deg: "",
     category_id: null,
   });
+  const [categoryLocked, setCategoryLocked] = useState(false);
 
   const [editMode, setEditMode] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -233,6 +263,21 @@ export default function AdminMapPage() {
     return Math.hypot(px - qx, py - qy);
   }
 
+  const findCategoryForPoint = useCallback(
+    (x, y) => {
+      if (!categories || categories.length === 0) return null;
+      for (const cat of categories) {
+        if (Array.isArray(cat.polygon) && cat.polygon.length >= 3) {
+          if (pointInPolygon({ x, y }, cat.polygon)) {
+            return cat.id;
+          }
+        }
+      }
+      return null;
+    },
+    [categories]
+  );
+
   const handleMapClick = useCallback(
     async (eOrPoint) => {
       let p;
@@ -301,7 +346,16 @@ export default function AdminMapPage() {
 
       if (createMode) {
         setNewItemPos(p);
-        setNewItem((prev) => ({ ...prev, x: p.x, y: p.y }));
+        setNewItem((prev) => {
+          let nextCategory = prev.category_id ?? null;
+          if (!categoryLocked) {
+            const detected = findCategoryForPoint(p.x, p.y);
+            if (detected != null) {
+              nextCategory = detected;
+            }
+          }
+          return { ...prev, x: p.x, y: p.y, category_id: nextCategory };
+        });
         return;
       }
 
@@ -344,6 +398,7 @@ export default function AdminMapPage() {
             category_id: it.category_id ?? null,
           });
           setNewItemPos({ x: it.x, y: it.y });
+          setCategoryLocked(it.category_id != null);
         }
         return;
       }
@@ -363,8 +418,32 @@ export default function AdminMapPage() {
       headingPickMode,
       mapWidthPx,
       mapHeightPx,
+      findCategoryForPoint,
+      categoryLocked,
     ]
   );
+
+  useEffect(() => {
+    if (categoryLocked) return;
+    if (newItem.category_id != null) return;
+    const nx = Number(newItem.x);
+    const ny = Number(newItem.y);
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+    const detected = findCategoryForPoint(nx, ny);
+    if (detected == null) return;
+    setNewItem((prev) => {
+      if (prev.category_id === detected) {
+        return prev;
+      }
+      return { ...prev, category_id: detected };
+    });
+  }, [categoryLocked, newItem.category_id, newItem.x, newItem.y, findCategoryForPoint]);
+
+  useEffect(() => {
+    if (createMode && !editMode) {
+      setCategoryLocked(false);
+    }
+  }, [createMode, editMode]);
 
   const handleSaveSegment = useCallback(async () => {
     if (drawPoints.length < 2) return;
@@ -490,29 +569,30 @@ export default function AdminMapPage() {
         \n        if (payload.price == null || payload.price === '' || isNaN(Number(payload.price))) { alert('Price is required'); return; }\n        if (!payload.image_url || String(payload.image_url).trim() === '') { alert('Image is required'); return; }
         */
         const created = await createItem(payload);
-        setItems((prev) =>
-          Array.isArray(prev) ? [...prev, created] : [created]
-        );
-      }
-      setNewItemPos(null);
-      setNewItem({
-        name: "",
-        type: "product",
-        x: null,
-        y: null,
-        z: "",
-        image_url: "",
-        note: "",
-        price: "",
-        sale_percent: "",
-        description: "",
-        heading_deg: "",
-        category_id: null,
-      });
-    } catch (e) {
-      alert("Create failed: " + (e?.message || e));
+      setItems((prev) =>
+        Array.isArray(prev) ? [...prev, created] : [created]
+      );
     }
-  }, [newItem, newItemPos]);
+    setNewItemPos(null);
+    setNewItem({
+      name: "",
+      type: "product",
+      x: null,
+      y: null,
+      z: "",
+      image_url: "",
+      note: "",
+      price: "",
+      sale_percent: "",
+      description: "",
+      heading_deg: "",
+      category_id: null,
+    });
+    setCategoryLocked(false);
+  } catch (e) {
+    alert("Create failed: " + (e?.message || e));
+  }
+}, [newItem, newItemPos]);
 
   const saveEditedItem = useCallback(async () => {
     if (!selectedItem) return;
@@ -577,7 +657,9 @@ export default function AdminMapPage() {
         sale_end_at: "",
         description: "",
         heading_deg: "",
+        category_id: null,
       });
+      setCategoryLocked(false);
       setToast({
         message: "Item deleted",
         actionText: "Undo",
@@ -778,6 +860,7 @@ export default function AdminMapPage() {
             onDelete={handleDeleteItem}
             onPickHeading={() => setHeadingPickMode(true)}
             categories={categories}
+            onCategorySelect={() => setCategoryLocked(true)}
             onCancel={() => {
               setNewItemPos(null);
               setSelectedItem(null);
@@ -793,7 +876,9 @@ export default function AdminMapPage() {
                 sale_percent: "",
                 description: "",
                 heading_deg: "",
+                category_id: null,
               });
+              setCategoryLocked(false);
             }}
           />
         )}

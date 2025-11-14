@@ -1,5 +1,5 @@
 # models.py
-from sqlalchemy import Column, Integer, String, DECIMAL, Text, ForeignKey, TIMESTAMP, func
+from sqlalchemy import Column, Integer, String, DECIMAL, Text, ForeignKey, TIMESTAMP, func, LargeBinary
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -176,4 +176,20 @@ class Category(Base):
         TIMESTAMP,
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp()
+    )
+
+
+class StoredFile(Base):
+    __tablename__ = "stored_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(255), unique=True, nullable=False)
+    scope = Column(String(64), nullable=True)
+    original_name = Column(String(255), nullable=True)
+    content_type = Column(String(128), nullable=True)
+    size_bytes = Column(Integer, nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(
+        TIMESTAMP,
+        server_default=func.current_timestamp()
     )

@@ -16,6 +16,18 @@ export default function Login({ onLoggedIn }) {
       const res = await loginRequest(API_BASE, username, password);
       setToken(res.access_token);
       onLoggedIn?.(res);
+      if (typeof window !== "undefined") {
+        if (!window.location.hash || window.location.hash === "#login") {
+          window.location.hash = "#map";
+        }
+        setTimeout(() => {
+          try {
+            window.location.reload();
+          } catch {
+            // ignore
+          }
+        }, 0);
+      }
     } catch (err) {
       setError(err?.message || String(err));
     } finally {
@@ -45,4 +57,3 @@ export default function Login({ onLoggedIn }) {
     </div>
   );
 }
-

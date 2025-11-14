@@ -1,11 +1,5 @@
-import React, { useMemo } from "react";
-import {
-  View,
-  Image,
-  GestureResponderEvent,
-  Text,
-  Pressable,
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Image, Text, PanResponder } from "react-native";
 import Svg, {
   Polyline as SvgPolyline,
   Circle as SvgCircle,
@@ -14,6 +8,20 @@ import Svg, {
 } from "react-native-svg";
 
 export type Point = { x: number; y: number };
+
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 3;
+const LONG_PRESS_MS = 550;
+const MOVE_CANCEL_PX = 12;
+const PAN_MARGIN = 60;
+
+const distanceBetweenTouches = (touches: readonly any[]) => {
+  if (!touches || touches.length < 2) return 0;
+  const [a, b] = touches;
+  const dx = (a?.pageX ?? 0) - (b?.pageX ?? 0);
+  const dy = (a?.pageY ?? 0) - (b?.pageY ?? 0);
+  return Math.hypot(dx, dy);
+};
 
 type Props = {
   width: number;
@@ -50,12 +58,86 @@ export default function Map2D({
   debug = false,
   categories = [],
 }: Props) {
-  // Fit map entirely inside given width/height while preserving aspect
-  const scale = Math.min(width / mapWidthPx, height / mapHeightPx);
+  const baseScale = Math.min(width / mapWidthPx, height / mapHeightPx);
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const panOffsetRef = useRef(panOffset);
+  useEffect(() => {
+    panOffsetRef.current = panOffset;
+  }, [panOffset]);
+  const panStartRef = useRef({ x: 0, y: 0 });
+
+  const pinchBaseRef = useRef<{ dist: number; zoom: number } | null>(null);
+  const pinchActiveRef = useRef(false);
+
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => () => cancelLongPress(), [cancelLongPress]);
+
+  const clampZoom = useCallback(
+    (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value)),
+    []
+  );
+  const clampPanValue = useCallback(
+    (axis: "x" | "y", value: number, zoomValue = zoomRef.current) => {
+      const mapPx =
+        (axis === "x" ? mapWidthPx : mapHeightPx) * baseScale * zoomValue;
+      const viewport = axis === "x" ? width : height;
+      const halfRange = Math.max(viewport, mapPx) / 2 + PAN_MARGIN;
+      return Math.max(-halfRange, Math.min(halfRange, value));
+    },
+    [baseScale, height, mapHeightPx, mapWidthPx, width]
+  );
+
+  useEffect(() => {
+    setPanOffset((prev) => {
+      const nx = clampPanValue("x", prev.x);
+      const ny = clampPanValue("y", prev.y);
+      if (nx === prev.x && ny === prev.y) return prev;
+      return { x: nx, y: ny };
+    });
+  }, [clampPanValue, zoom]);
+
+  const scale = baseScale * zoom;
   const dispWidth = Math.round(mapWidthPx * scale);
   const dispHeight = Math.round(mapHeightPx * scale);
   const offX = Math.floor((width - dispWidth) / 2);
   const offY = Math.floor((height - dispHeight) / 2);
+  const baseUserScreen = useMemo(() => {
+    if (!user) return null;
+    return {
+      x: offX + user.x * scale,
+      y: offY + user.y * scale,
+    };
+  }, [user, offX, offY, scale]);
+
+  const centerShift = useMemo(() => {
+    if (!centerOnUser || !baseUserScreen) {
+      return { x: 0, y: 0 };
+    }
+    return {
+      x: width / 2 - baseUserScreen.x,
+      y: height / 2 - baseUserScreen.y,
+    };
+  }, [centerOnUser, baseUserScreen, width, height]);
+
+  const effectiveShift = useMemo(
+    () => ({
+      x: panOffset.x + centerShift.x,
+      y: panOffset.y + centerShift.y,
+    }),
+    [panOffset.x, panOffset.y, centerShift.x, centerShift.y]
+  );
 
   const routePoints = useMemo(() => {
     if (!polyline || polyline.length < 2) return "";
@@ -69,47 +151,163 @@ export default function Map2D({
       cont: { width, height },
       map: { mapWidthPx, mapHeightPx },
       disp: { dispWidth, dispHeight },
+      zoom,
       scale,
       offX,
       offY,
+      pan: panOffset,
+      shift: effectiveShift,
+      shift: effectiveShift,
       user,
       headingDeg,
       polyLen: polyline?.length || 0,
     });
   }
 
-  const onLongPressWrap = (e: GestureResponderEvent) => {
-    if (!onLongPress) return;
-    const { locationX, locationY } = e.nativeEvent;
-    // Inverse transform if map is rotated/centered
-    let x = locationX;
-    let y = locationY;
-    if (rotateMap || centerOnUser) {
-      // move to viewport-origin at center
-      x -= width / 2;
-      y -= height / 2;
-      // undo rotation
+  const rotationPivot = useMemo(() => {
+    const baseX = baseUserScreen?.x ?? width / 2;
+    const baseY = baseUserScreen?.y ?? height / 2;
+    return {
+      x: baseX + effectiveShift.x,
+      y: baseY + effectiveShift.y,
+    };
+  }, [baseUserScreen, effectiveShift.x, effectiveShift.y, width, height]);
+
+  const screenToMap = useCallback(
+    (screenX: number, screenY: number) => {
+      let x = screenX;
+      let y = screenY;
+
       if (rotateMap) {
+        const pivotX = rotationPivot.x;
+        const pivotY = rotationPivot.y;
         const ang =
           ((headingInvert ? -headingDeg : headingDeg) * Math.PI) / 180;
         const cos = Math.cos(ang);
         const sin = Math.sin(ang);
-        const rx = cos * x + -sin * y;
-        const ry = sin * x + cos * y;
-        x = rx;
-        y = ry;
+        const relX = x - pivotX;
+        const relY = y - pivotY;
+        const rx = cos * relX - sin * relY;
+        const ry = sin * relX + cos * relY;
+        x = pivotX + rx;
+        y = pivotY + ry;
       }
-      // move back from user point
-      const userSX = offX + (user?.x ?? 0) * scale;
-      const userSY = offY + (user?.y ?? 0) * scale;
-      x += userSX;
-      y += userSY;
-    }
-    // convert screen to map px
-    const px = (x - offX) / scale;
-    const py = (y - offY) / scale;
-    onLongPress({ x: px, y: py });
-  };
+
+      x -= effectiveShift.x;
+      y -= effectiveShift.y;
+
+      const px = (x - offX) / scale;
+      const py = (y - offY) / scale;
+      return { x: px, y: py };
+    },
+    [
+      rotateMap,
+      rotationPivot.x,
+      rotationPivot.y,
+      headingInvert,
+      headingDeg,
+      effectiveShift.x,
+      effectiveShift.y,
+      offX,
+      offY,
+      scale,
+    ]
+  );
+
+  const handlePressFromCoords = useCallback(
+    (screenX: number, screenY: number) => {
+      if (!onLongPress) return;
+      onLongPress(screenToMap(screenX, screenY));
+    },
+    [onLongPress, screenToMap]
+  );
+
+  const scheduleLongPress = useCallback(
+    (screenX: number, screenY: number) => {
+      if (!onLongPress) return;
+      cancelLongPress();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        handlePressFromCoords(screenX, screenY);
+      }, LONG_PRESS_MS);
+    },
+    [cancelLongPress, handlePressFromCoords, onLongPress]
+  );
+
+  const finishGesture = useCallback(() => {
+    cancelLongPress();
+    pinchBaseRef.current = null;
+    pinchActiveRef.current = false;
+    panStartRef.current = panOffsetRef.current;
+  }, [cancelLongPress]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (evt) => {
+          pinchActiveRef.current = false;
+          pinchBaseRef.current = null;
+          panStartRef.current = panOffsetRef.current;
+          scheduleLongPress(
+            evt.nativeEvent.locationX,
+            evt.nativeEvent.locationY
+          );
+        },
+        onPanResponderMove: (evt, gestureState) => {
+          const touches = evt.nativeEvent.touches || [];
+          if (touches.length >= 2) {
+            pinchActiveRef.current = true;
+            cancelLongPress();
+            const dist = distanceBetweenTouches(touches);
+            if (dist <= 0) return;
+            if (!pinchBaseRef.current) {
+              pinchBaseRef.current = { dist, zoom: zoomRef.current };
+            } else if (pinchBaseRef.current.dist > 0) {
+              const factor = dist / pinchBaseRef.current.dist;
+              const nextZoom = clampZoom(pinchBaseRef.current.zoom * factor);
+              setZoom(nextZoom);
+            }
+            return;
+          }
+
+          if (pinchActiveRef.current) return;
+
+          if (
+            Math.abs(gestureState.dx) > MOVE_CANCEL_PX ||
+            Math.abs(gestureState.dy) > MOVE_CANCEL_PX
+          ) {
+            cancelLongPress();
+          }
+
+          const next = {
+            x: clampPanValue("x", panStartRef.current.x + gestureState.dx),
+            y: clampPanValue("y", panStartRef.current.y + gestureState.dy),
+          };
+          setPanOffset(next);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (
+            !pinchActiveRef.current &&
+            Math.abs(gestureState.dx) < MOVE_CANCEL_PX &&
+            Math.abs(gestureState.dy) < MOVE_CANCEL_PX
+          ) {
+            cancelLongPress();
+          }
+          finishGesture();
+        },
+        onPanResponderTerminate: finishGesture,
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [
+      cancelLongPress,
+      clampPanValue,
+      clampZoom,
+      finishGesture,
+      scheduleLongPress,
+    ]
+  );
 
   // Compute category label positions (simple polygon centroid)
   const catLabels = useMemo(() => {
@@ -144,24 +342,39 @@ export default function Map2D({
       .filter(Boolean) as { name: string; x: number; y: number }[];
   }, [categories, offX, offY, scale]);
 
-  // Build transform so that only the map moves: translate(user to origin), rotate, translate to center
-  const userSX = offX + (user?.x ?? 0) * scale;
-  const userSY = offY + (user?.y ?? 0) * scale;
+  // Build transform so that only the map rotates/translates; user overlay stays outside.
+  const userSX = baseUserScreen?.x ?? (width / 2);
+  const userSY = baseUserScreen?.y ?? (height / 2);
   const angleDeg = headingInvert ? -headingDeg : headingDeg;
-  const shouldCenter = centerOnUser && user;
-  const transforms = shouldCenter
-    ? [
-        { translateX: -userSX },
-        { translateY: -userSY },
-        ...(rotateMap ? [{ rotate: `${-angleDeg}deg` as const }] : []),
-        { translateX: width / 2 },
-        { translateY: height / 2 },
-      ]
-    : [];
+  const transforms = useMemo(() => {
+    const t: { [key: string]: string | number }[] = [];
+    if (effectiveShift.x !== 0 || effectiveShift.y !== 0) {
+      t.push({ translateX: effectiveShift.x }, { translateY: effectiveShift.y });
+    }
+    if (rotateMap) {
+      const pivotX = rotationPivot.x;
+      const pivotY = rotationPivot.y;
+      t.push(
+        { translateX: -pivotX },
+        { translateY: -pivotY },
+        { rotate: `${-angleDeg}deg` as const },
+        { translateX: pivotX },
+        { translateY: pivotY }
+      );
+    }
+    return t;
+  }, [
+    angleDeg,
+    rotateMap,
+    rotationPivot.x,
+    rotationPivot.y,
+    effectiveShift.x,
+    effectiveShift.y,
+  ]);
 
   return (
-    <Pressable
-      onLongPress={onLongPressWrap}
+    <View
+      {...panResponder.panHandlers}
       style={{
         width,
         height,
@@ -256,8 +469,8 @@ export default function Map2D({
           pointerEvents="none"
         >
           {(() => {
-            const cx = centerOnUser ? width / 2 : offX + user.x * scale;
-            const cy = centerOnUser ? height / 2 : offY + user.y * scale;
+            const cx = rotationPivot.x;
+            const cy = rotationPivot.y;
             // When rotating the map, keep arrow pointing up; otherwise rotate by heading
             const hd = Number.isFinite(headingDeg) ? headingDeg : 0;
             const ang =
@@ -329,10 +542,10 @@ export default function Map2D({
         </Text>
         {debug && (
           <Text style={{ color: "#ccc", fontSize: 10, marginTop: 2 }}>
-            s:{scale.toFixed(3)} off:{offX},{offY} poly:{polyline?.length || 0}
+            s:{scale.toFixed(3)} z:{zoom.toFixed(2)} pan:{panOffset.x.toFixed(0)},{panOffset.y.toFixed(0)} poly:{polyline?.length || 0}
           </Text>
         )}
       </View>
-    </Pressable>
+    </View>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import AdminLayout from "./layouts/AdminLayout";
 import { MartProvider } from "./context/MartContext.jsx";
 import Home from "./pages/Home";
@@ -32,8 +32,27 @@ function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const handleLoggedIn = useCallback(() => {
+    setAuthed(true);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    clearToken();
+    setAuthed(false);
+    if (typeof window !== "undefined") {
+      window.location.hash = "#login";
+      setTimeout(() => {
+        try {
+          window.location.reload();
+        } catch {
+          // ignore
+        }
+      }, 0);
+    }
+  }, []);
+
   if (!authed) {
-    return <Login onLoggedIn={() => setAuthed(true)} />;
+    return <Login onLoggedIn={handleLoggedIn} />;
   }
 
   const [route] = useHashRoute("map");
@@ -59,7 +78,7 @@ function App() {
 
   return (
     <MartProvider>
-      <AdminLayout route={route} onLogout={() => { clearToken(); setAuthed(false); }}>
+      <AdminLayout route={route} onLogout={handleLogout}>
         {content}
       </AdminLayout>
     </MartProvider>

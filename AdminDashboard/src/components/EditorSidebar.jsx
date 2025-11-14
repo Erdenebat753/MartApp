@@ -64,7 +64,8 @@ export default function EditorSidebar({
     borderRadius: 8,
     padding: "8px 10px",
     marginBottom: 6,
-    display: 'grid',
+    display: 'flex',
+    flexDirection: 'column',
     gap: 6,
     fontSize: 12,
   };
@@ -131,19 +132,19 @@ export default function EditorSidebar({
       onMouseDown={(e)=>e.stopPropagation()}
       onClick={(e)=>e.stopPropagation()}
       style={{
-        position: "fixed",
-        right: 16,
-        top: 16,
-        height: 'calc(100vh - 32px)',
+        position: "absolute",
+        right: 0,
+        top: 0,
+        bottom: 0,
         width: 300,
         background: "var(--panel)",
         border: "1px solid var(--border)",
-        borderRadius: 8,
+        borderRadius: 0,
         padding: 12,
-        zIndex: 1200,
-        overflowX: "hidden",
-        overflowY: "auto",
-        display: 'grid',
+        zIndex: 12,
+        overflow: "auto",
+        display: 'flex',
+        flexDirection: 'column',
         gap: 8,
         boxSizing: 'border-box',
         fontSize: 12,
@@ -245,7 +246,44 @@ export default function EditorSidebar({
       {(viewMode==='segments' || viewMode==='all') && (
       <div style={panelStyle}>
         <div style={{ fontWeight: 600 }}>{t('selection')}</div>
-        <button onClick={onDeleteSelectedSegment} disabled={!selectedSegId} style={{ ...btn(), background: selectedSegId ? "#dc2626" : "#1f2937", border: selectedSegId ? "1px solid #7f1d1d" : "1px solid #3f3f46", color: selectedSegId ? "#fff" : "#e5e7eb", opacity: selectedSegId ? 1 : 0.6 }}>{t('delete_selected')}</button>
+        <div style={{ display: 'grid', gap: 6 }}>
+          <button
+            onClick={() => {
+              const next = !selectSegMode;
+              setSelectSegMode(next);
+              if (next) {
+                setDrawMode(false);
+                setRouteMode(false);
+                setCategoryMode(false);
+                setCreateMode(false);
+                setEditMode(false);
+              }
+            }}
+            style={{
+              ...btn(),
+              background: selectSegMode ? "#fbbf24" : "var(--panel)",
+              color: selectSegMode ? "#2b1b02" : "var(--text)",
+            }}
+          >
+            {selectSegMode ? t('select_segment_on') : t('select_segment_off')}
+          </button>
+          <button
+            onClick={onDeleteSelectedSegment}
+            disabled={!selectedSegId}
+            style={{
+              ...btn(),
+              background: selectedSegId ? "#dc2626" : "#1f2937",
+              border: selectedSegId ? "1px solid #7f1d1d" : "1px solid #3f3f46",
+              color: selectedSegId ? "#fff" : "#e5e7eb",
+              opacity: selectedSegId ? 1 : 0.6,
+            }}
+          >
+            {t('delete_selected')}
+          </button>
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>
+            {t('select_segment_hint')}
+          </div>
+        </div>
       </div>
       )}
 

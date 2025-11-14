@@ -6,13 +6,54 @@ from typing import List
 from datetime import datetime, timezone
 import os
 import uuid
+import json
 
 from database import get_db
-from models import Item, Segment, Path
+from models import Item, Segment, Path, Category
 from sqlalchemy import update
 from schemas import ItemCreate, ItemRead
+from file_storage import save_file, delete_file_by_slug
 
 router = APIRouter(prefix="/api/items", tags=["items"])
+
+
+def _slug_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    return url.rsplit("/", 1)[-1]
+
+
+def _point_in_polygon(x: float, y: float, points: list[dict]) -> bool:
+    coords = [(float(p.get("x", 0.0)), float(p.get("y", 0.0))) for p in points if isinstance(p, dict)]
+    n = len(coords)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = coords[i]
+        xj, yj = coords[j]
+        intersects = ((yi > y) != (yj > y)) and (
+            x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi
+        )
+        if intersects:
+            inside = not inside
+        j = i
+    return inside
+
+
+async def _auto_category_id(db: AsyncSession, mart_id: int | None, x: float, y: float) -> int | None:
+    if mart_id is None:
+        return None
+    result = await db.execute(select(Category).where(Category.mart_id == mart_id))
+    for cat in result.scalars():
+        try:
+            poly = json.loads(cat.polygon_json or "[]")
+        except Exception:
+            continue
+        if isinstance(poly, list) and _point_in_polygon(float(x), float(y), poly):
+            return cat.id
+    return None
 
 @router.get("", response_model=List[ItemRead])
 async def list_items(mart_id: int | None = Query(default=None), db: AsyncSession = Depends(get_db)):
@@ -60,6 +101,11 @@ async def create_item(item: ItemCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="price is required (non-null)")
     if item.image_url is None or (isinstance(item.image_url, str) and item.image_url.strip() == ""):
         raise HTTPException(status_code=400, detail="image_url is required (upload image or provide path)")
+    category_id = item.category_id
+    if category_id is None:
+        auto_cat = await _auto_category_id(db, item.mart_id, float(item.x), float(item.y))
+        if auto_cat is not None:
+            category_id = auto_cat
     new_item = Item(
         mart_id=item.mart_id,
         name=item.name,
@@ -69,7 +115,7 @@ async def create_item(item: ItemCreate, db: AsyncSession = Depends(get_db)):
         z=item.z,
         image_url=item.image_url,
         note=item.note,
-        category_id=item.category_id,
+        category_id=category_id,
         price=item.price,
         sale_percent=item.sale_percent,
         sale_end_at=item.sale_end_at,
@@ -103,7 +149,12 @@ async def update_item(item_id: int, item: ItemCreate, db: AsyncSession = Depends
     obj.z = item.z
     obj.image_url = item.image_url
     obj.note = item.note
-    obj.category_id = item.category_id
+    category_id = item.category_id
+    if category_id is None:
+        auto_cat = await _auto_category_id(db, item.mart_id, float(item.x), float(item.y))
+        if auto_cat is not None:
+            category_id = auto_cat
+    obj.category_id = category_id
     obj.price = item.price
     obj.sale_percent = item.sale_percent
     obj.sale_end_at = item.sale_end_at
@@ -115,21 +166,24 @@ async def update_item(item_id: int, item: ItemCreate, db: AsyncSession = Depends
 
 
 @router.post("/upload-image")
-async def upload_item_image(file: UploadFile = File(...)):
-    # Save file to FastApi_AI/uploads and return public URL path
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    proj_dir = os.path.dirname(base_dir)
-    upload_dir = os.path.join(proj_dir, "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
+async def upload_item_image(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="File is empty")
     _, ext = os.path.splitext(file.filename or "")
     ext = (ext or ".bin").lower()
     fname = f"item_{uuid.uuid4().hex}{ext}"
-    dest = os.path.join(upload_dir, fname)
-    contents = await file.read()
-    with open(dest, "wb") as f:
-        f.write(contents)
+    await save_file(
+        db,
+        slug=fname,
+        contents=contents,
+        content_type=file.content_type,
+        scope="item_upload",
+        original_name=file.filename,
+    )
+    await db.commit()
     public_url = f"/uploads/{fname}"
-    return { "image_url": public_url }
+    return {"image_url": public_url}
 
 
 @router.post("/{item_id}/image", response_model=ItemRead)
@@ -137,17 +191,21 @@ async def set_item_image(item_id: int, file: UploadFile = File(...), db: AsyncSe
     obj = await db.get(Item, item_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Item not found")
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    proj_dir = os.path.dirname(base_dir)
-    upload_dir = os.path.join(proj_dir, "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="File is empty")
     _, ext = os.path.splitext(file.filename or "")
     ext = (ext or ".bin").lower()
     fname = f"item_{item_id}_{uuid.uuid4().hex}{ext}"
-    dest = os.path.join(upload_dir, fname)
-    contents = await file.read()
-    with open(dest, "wb") as f:
-        f.write(contents)
+    await save_file(
+        db,
+        slug=fname,
+        contents=contents,
+        content_type=file.content_type,
+        scope="item_image",
+        original_name=file.filename,
+    )
+    await delete_file_by_slug(db, _slug_from_url(obj.image_url))
     obj.image_url = f"/uploads/{fname}"
     await db.commit()
     await db.refresh(obj)
@@ -158,6 +216,7 @@ async def delete_item(item_id: int, db: AsyncSession = Depends(get_db)):
     obj = await db.get(Item, item_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Item not found")
+    await delete_file_by_slug(db, _slug_from_url(obj.image_url))
     # Clean references in segments and paths (defensive, in case FK doesn't SET NULL)
     await db.execute(update(Segment).where(Segment.from_item_id == item_id).values(from_item_id=None))
     await db.execute(update(Segment).where(Segment.to_item_id == item_id).values(to_item_id=None))

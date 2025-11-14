@@ -74,7 +74,7 @@ export default function AdminLayout({ route, children, onLogout }) {
           boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <button
             onClick={() => setCollapsed((v) => !v)}
             title={collapsed ? "Expand" : "Collapse"}
@@ -83,21 +83,25 @@ export default function AdminLayout({ route, children, onLogout }) {
             {collapsed ? ">>" : "<<"}
           </button>
           {!collapsed && (
-            <div style={{ display: "grid" }}>
-              <div style={{ fontWeight: 700 }}>{t('app_title')}</div>
-              <div style={{ fontSize: 12, color: "#9ca3af" }}>Active Mart: {mart?.name ?? "None"}</div>
+            <div style={{ display: "grid", flex: 1, rowGap: 2, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>{t('app_title')}</div>
+              <div style={{ fontSize: 12, color: "#9ca3af", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
+                {t('active_mart') ?? "Active Mart"}: {mart?.name ?? t('none') ?? "None"}
+              </div>
             </div>
           )}
-          <button onClick={toggle} title="Toggle theme" style={{ padding: "6px 10px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}>
-            {mode === "dark" ? "🌙" : "☀️"}
-          </button>
-          <select value={lang} onChange={(e)=>setLang(e.target.value)} style={{ padding: '6px 8px', background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }}>
-            <option value="ko">한국어</option>
-            <option value="en">English</option>
-          </select>
-          <button onClick={onLogout} title="Logout" style={{ padding: "6px 10px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}>
-            {t('logout')}
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: collapsed ? "center" : "flex-end", flexWrap: "wrap" }}>
+            <button onClick={toggle} title="Toggle theme" style={{ padding: "6px 10px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}>
+              {mode === "dark" ? "🌙" : "☀️"}
+            </button>
+            <select value={lang} onChange={(e)=>setLang(e.target.value)} style={{ padding: '6px 8px', background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }}>
+              <option value="ko">한국어</option>
+              <option value="en">English</option>
+            </select>
+            <button onClick={onLogout} title="Logout" style={{ padding: "6px 10px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}>
+              {t('logout')}
+            </button>
+          </div>
         </div>
         <nav style={{ display: "grid", gap: 6, flex: 1, overflow: "auto", alignContent: "start" }}>
           <NavLink to="home" label={collapsed ? "H" : t('home')} active={route === "home"} compact={collapsed} />

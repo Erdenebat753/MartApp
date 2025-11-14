@@ -4,7 +4,7 @@ import { Stack } from "expo-router";
 import { NativeBaseProvider } from "native-base";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { LogBox } from "react-native";
+import { LogBox, BackHandler } from "react-native";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -18,6 +18,11 @@ export default function RootLayout() {
         } catch {}
         try { prev && prev(e, isFatal); } catch {}
       });
+    } catch {}
+    try {
+      if (!BackHandler.removeEventListener) {
+        (BackHandler as any).removeEventListener = () => {};
+      }
     } catch {}
     // Do not mute logs; ensure warnings show up
     try { LogBox.ignoreAllLogs(false); } catch {}

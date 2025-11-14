@@ -1,37 +1,73 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { getMarts, createMart, updateMart, uploadMartImage } from "../api";
+import React, { useCallback, useEffect, useState } from "react";
+import { getMarts, createMart, updateMart, uploadMartImage, deleteMart } from "../api";
 import { API_BASE } from "../config";
 
+const blankForm = () => ({
+  name: "",
+  longitude: "",
+  latitude: "",
+  map_width_px: "",
+  map_height_px: "",
+  map_image_url: "",
+});
+
+const formFromMart = (data) => ({
+  name: data.name || "",
+  longitude: data.coord_x ?? "",
+  latitude: data.coord_y ?? "",
+  map_width_px: data.map_width_px ?? "",
+  map_height_px: data.map_height_px ?? "",
+  map_image_url: data.map_image_url || "",
+});
+
 export default function MartPage() {
+  const [marts, setMarts] = useState([]);
   const [mart, setMart] = useState(null);
-  const [form, setForm] = useState({
-    name: "",
-    longitude: "",
-    latitude: "",
-    map_width_px: "",
-    map_height_px: "",
-    map_image_url: "",
-  });
+  const [form, setForm] = useState(blankForm());
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const applySelection = useCallback((next) => {
+    if (next) {
+      setMart(next);
+      setForm(formFromMart(next));
+    } else {
+      setMart(null);
+      setForm(blankForm());
+    }
+  }, []);
+
+  const loadMarts = useCallback(async (preferredId = null) => {
+    try {
+      const list = await getMarts();
+      setMarts(list);
+      let next = null;
+      if (preferredId != null) {
+        next = list.find((m) => m.id === preferredId) || null;
+      }
+      if (!next) {
+        next = list[0] ?? null;
+      }
+      applySelection(next);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [applySelection]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const list = await getMarts();
-        if (Array.isArray(list) && list.length > 0) {
-          setMart(list[0]);
-          setForm({
-            name: list[0].name || "",
-            longitude: list[0].coord_x ?? "",
-            latitude: list[0].coord_y ?? "",
-            map_width_px: list[0].map_width_px ?? "",
-            map_height_px: list[0].map_height_px ?? "",
-            map_image_url: list[0].map_image_url || "",
-          });
-        }
-      } catch {}
-    })();
-  }, []);
+    loadMarts();
+  }, [loadMarts]);
+
+  function handleSelectMart(e) {
+    const val = e.target.value;
+    if (val === "") {
+      applySelection(null);
+      return;
+    }
+    const selected = marts.find((m) => m.id === Number(val)) || null;
+    applySelection(selected);
+  }
 
   async function handleSave(e) {
     e.preventDefault();
@@ -43,17 +79,20 @@ export default function MartPage() {
       map_height_px: form.map_height_px === "" ? null : parseInt(form.map_height_px, 10),
       map_image_url: form.map_image_url || null,
     };
+    setSaving(true);
     try {
       if (mart) {
         const upd = await updateMart(mart.id, payload);
-        setMart(upd);
+        await loadMarts(upd.id);
       } else {
         const crt = await createMart(payload);
-        setMart(crt);
+        await loadMarts(crt.id);
       }
       alert("Saved");
     } catch (e) {
       alert("Save failed: " + (e?.message || e));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -65,13 +104,8 @@ export default function MartPage() {
     try {
       setUploading(true);
       const upd = await uploadMartImage(mart.id, file);
-      setMart(upd);
-      setForm((f) => ({
-        ...f,
-        map_image_url: upd.map_image_url || "",
-        map_width_px: upd.map_width_px ?? f.map_width_px,
-        map_height_px: upd.map_height_px ?? f.map_height_px,
-      }));
+      setMarts((prev) => prev.map((m) => (m.id === upd.id ? upd : m)));
+      applySelection(upd);
     } catch (e) {
       alert("Upload failed: " + (e?.message || e));
     } finally {
@@ -79,9 +113,38 @@ export default function MartPage() {
     }
   }
 
+  async function handleDeleteMart() {
+    if (!mart) return;
+    const ok = window.confirm(`Delete mart "${mart.name}"?`);
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteMart(mart.id);
+      await loadMarts();
+    } catch (e) {
+      alert("Delete failed: " + (e?.message || e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Mart</h2>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 12, flexWrap: "wrap" }}>
+        <label style={{ display: "grid", gap: 4 }}>
+          <span style={{ fontWeight: 600 }}>Select Mart</span>
+          <select value={mart?.id ?? ""} onChange={handleSelectMart} style={{ minWidth: 220 }}>
+            <option value="">(New mart)</option>
+            {marts.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} (#{m.id})
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" onClick={() => applySelection(null)}>Create New</button>
+      </div>
       <form onSubmit={handleSave} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
         <label style={{ display: "grid", gap: 6 }}>
           <span style={{ fontWeight: 600 }}>Name</span>
@@ -125,8 +188,26 @@ export default function MartPage() {
           })()}
         </label>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="submit" style={{ padding: "8px 12px" }}>{mart ? "Update" : "Create"}</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="submit" style={{ padding: "8px 12px" }} disabled={saving}>
+            {saving ? "Saving..." : mart ? "Update" : "Create"}
+          </button>
+          {mart && (
+            <button
+              type="button"
+              onClick={handleDeleteMart}
+              disabled={deleting}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 6,
+                border: "1px solid #ef4444",
+                background: deleting ? "#7f1d1d" : "transparent",
+                color: deleting ? "#fee2e2" : "#f87171",
+              }}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+          )}
         </div>
       </form>
     </div>

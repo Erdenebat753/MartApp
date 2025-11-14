@@ -7,7 +7,7 @@ export default function ItemsSidebar({ items, filterText, slamStart }) {
   }, [items, filterText]);
 
   return (
-    <div onMouseDown={(e)=>e.stopPropagation()} onClick={(e)=>e.stopPropagation()} style={{ position: "absolute", left: 16, top: 16, bottom: 16, width: 300, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, zIndex: 12, overflow: "auto", boxSizing: 'border-box' }}>
+    <div onMouseDown={(e)=>e.stopPropagation()} onClick={(e)=>e.stopPropagation()} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 300, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 0, padding: 12, zIndex: 12, overflow: "auto", boxSizing: 'border-box' }}>
       <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--text)" }}>Items</div>
       {slamStart && (
         <div style={{ marginBottom: 8, padding: 8, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--panel)' }}>

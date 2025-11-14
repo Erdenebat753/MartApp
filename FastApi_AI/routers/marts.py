@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -8,8 +8,15 @@ import uuid
 from database import get_db
 from models import Mart
 from schemas import MartCreate, MartRead
+from file_storage import save_file, delete_file_by_slug
 
 router = APIRouter(prefix="/api/marts", tags=["marts"])
+
+
+def _slug_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    return url.rsplit("/", 1)[-1]
 
 
 @router.get("", response_model=List[MartRead])
@@ -65,17 +72,10 @@ async def upload_mart_map_image(mart_id: int, file: UploadFile = File(...), db: 
     if not obj:
         raise HTTPException(status_code=404, detail="Mart not found")
 
-    # Ensure uploads directory exists (relative to FastApi_AI)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    proj_dir = os.path.dirname(base_dir)
-    upload_dir = os.path.join(proj_dir, "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-
     # Generate unique filename preserving extension
     _, ext = os.path.splitext(file.filename or "")
     ext = (ext or ".bin").lower()
     fname = f"mart_{mart_id}_{uuid.uuid4().hex}{ext}"
-    dest = os.path.join(upload_dir, fname)
 
     # Save file
     contents = await file.read()
@@ -117,12 +117,21 @@ async def upload_mart_map_image(mart_id: int, file: UploadFile = File(...), db: 
         except Exception:
             pass
         return None, None
+    if not contents:
+        raise HTTPException(status_code=400, detail="File is empty")
     img_w, img_h = _image_size(contents)
-    with open(dest, "wb") as f:
-        f.write(contents)
+    await save_file(
+        db,
+        slug=fname,
+        contents=contents,
+        content_type=file.content_type,
+        scope="mart_map",
+        original_name=file.filename,
+    )
 
     # Public URL path
     public_url = f"/uploads/{fname}"
+    await delete_file_by_slug(db, _slug_from_url(obj.map_image_url))
     obj.map_image_url = public_url
     if img_w and img_h:
         obj.map_width_px = int(img_w)
@@ -130,3 +139,14 @@ async def upload_mart_map_image(mart_id: int, file: UploadFile = File(...), db: 
     await db.commit()
     await db.refresh(obj)
     return obj
+
+
+@router.delete("/{mart_id}", status_code=204)
+async def delete_mart(mart_id: int, db: AsyncSession = Depends(get_db)):
+    obj = await db.get(Mart, mart_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Mart not found")
+    await delete_file_by_slug(db, _slug_from_url(obj.map_image_url))
+    await db.delete(obj)
+    await db.commit()
+    return Response(status_code=204)

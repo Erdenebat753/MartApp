@@ -20,6 +20,21 @@ import { API_BASE } from "../../constants/api";
 import type { Item } from "../../src/types";
 import { useMartMeta } from "../../hooks/useMartMeta";
 
+const YAW_STABLE_EPS = 0.05;
+const POS_STABLE_EPS = 1e-4;
+const FRAME_THROTTLE_MS = 16;
+
+const requestFrame =
+  typeof globalThis.requestAnimationFrame === "function"
+    ? globalThis.requestAnimationFrame.bind(globalThis)
+    : (cb: (time: number) => void) =>
+        setTimeout(() => cb(Date.now()), FRAME_THROTTLE_MS);
+
+const cancelFrame =
+  typeof globalThis.cancelAnimationFrame === "function"
+    ? globalThis.cancelAnimationFrame.bind(globalThis)
+    : (handle: number) => clearTimeout(handle as any);
+
 export default function ARTab() {
   const { width, height } = Dimensions.get("window");
   const half = Math.floor(height * 0.5);
@@ -59,26 +74,88 @@ export default function ARTab() {
   const camStartRef = React.useRef(camStart);
   const deviceYaw0Ref = React.useRef(deviceYaw0);
   const trackingOKRef = React.useRef(true);
+  const poseSampleRef = React.useRef<{
+    pos: [number, number, number];
+    yaw: number;
+  } | null>(null);
+  const poseFrameHandleRef = React.useRef<number | null>(null);
+  const flushPoseSampleRef = React.useRef<() => void>(() => {});
 
   React.useEffect(() => { slamStartRef.current = slamStart; });
   React.useEffect(() => { camStartRef.current = camStart; });
   React.useEffect(() => { deviceYaw0Ref.current = deviceYaw0; });
 
+  const schedulePoseFlush = React.useCallback(() => {
+    if (poseFrameHandleRef.current != null) return;
+    poseFrameHandleRef.current = requestFrame(() => {
+      poseFrameHandleRef.current = null;
+      flushPoseSampleRef.current();
+    });
+  }, []);
+
+  const flushPoseSample = React.useCallback(() => {
+    const sample = poseSampleRef.current;
+    if (!sample) return;
+    const now = Date.now();
+    if (now - lastPoseTsRef.current < FRAME_THROTTLE_MS) {
+      schedulePoseFlush();
+      return;
+    }
+    poseSampleRef.current = null;
+    lastPoseTsRef.current = now;
+    const { pos: nextPos, yaw } = sample;
+    setDeviceYaw((prev) =>
+      Math.abs(prev - yaw) < YAW_STABLE_EPS ? prev : yaw
+    );
+    setCamNow((prev) => {
+      if (
+        prev &&
+        Math.abs(prev[0] - nextPos[0]) < POS_STABLE_EPS &&
+        Math.abs(prev[1] - nextPos[1]) < POS_STABLE_EPS &&
+        Math.abs(prev[2] - nextPos[2]) < POS_STABLE_EPS
+      ) {
+        return prev;
+      }
+      return nextPos;
+    });
+    if (slamStartRef.current && !camStartRef.current) {
+      camStartRef.current = nextPos;
+      setCamStart(nextPos);
+    }
+    if (deviceYaw0Ref.current === null) {
+      deviceYaw0Ref.current = yaw;
+      setDeviceYaw0(yaw);
+    }
+  }, [schedulePoseFlush]);
+
+  React.useEffect(() => {
+    flushPoseSampleRef.current = flushPoseSample;
+  }, [flushPoseSample]);
+
+  React.useEffect(() => {
+    return () => {
+      if (poseFrameHandleRef.current != null) {
+        cancelFrame(poseFrameHandleRef.current);
+        poseFrameHandleRef.current = null;
+      }
+    };
+  }, []);
+
   // Stable handlers (top-level hooks, not inside conditionals/JSX)
   const handleDevicePose = React.useCallback(
     (pos: [number, number, number], yawDeg: number) => {
       if (!trackingOKRef.current) return;
-      const now = Date.now();
-      if (now - lastPoseTsRef.current < 16) return;
-      lastPoseTsRef.current = now;
-      setDeviceYaw(yawDeg);
-      setCamNow(pos);
-      if (slamStartRef.current && !camStartRef.current) setCamStart(pos);
-      if (deviceYaw0Ref.current === null) {
-        setDeviceYaw0(yawDeg);
-      }
+      const nextPos: [number, number, number] = [
+        Number(pos?.[0]) || 0,
+        Number(pos?.[1]) || 0,
+        Number(pos?.[2]) || 0,
+      ];
+      const yaw =
+        Number.isFinite(yawDeg) && typeof yawDeg === "number" ? yawDeg : 0;
+      poseSampleRef.current = { pos: nextPos, yaw };
+      schedulePoseFlush();
     },
-    []
+    [schedulePoseFlush]
   );
 
   const handleTrackingState = React.useCallback((st: string, rsn: string) => {

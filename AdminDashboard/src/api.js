@@ -22,6 +22,25 @@ async function jsonFetch(url, opts = {}) {
   return res.json();
 }
 
+async function deleteFetch(url) {
+  const token = getToken();
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      clearToken();
+      throw new Error("Unauthorized");
+    }
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt}`);
+  }
+  return true;
+}
+
 export async function getSegments() {
   return jsonFetch(`${API_BASE}/api/segments`);
 }
@@ -34,12 +53,7 @@ export async function createFreeSegment(polyline) {
 }
 
 export async function deleteSegment(id) {
-  const res = await fetch(`${API_BASE}/api/segments/${id}`, { method: "DELETE" });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`HTTP ${res.status}: ${txt}`);
-  }
-  return true;
+  return deleteFetch(`${API_BASE}/api/segments/${id}`);
 }
 
 export async function routeByCoords(start, end, algorithm = 'astar') {
@@ -88,12 +102,7 @@ export async function updateItem(id, item) {
 }
 
 export async function deleteItem(id) {
-  const res = await fetch(`${API_BASE}/api/items/${id}`, { method: "DELETE" });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`HTTP ${res.status}: ${txt}`);
-  }
-  return true;
+  return deleteFetch(`${API_BASE}/api/items/${id}`);
 }
 
 export async function getSlamStart() {
@@ -118,12 +127,7 @@ export async function updateCategory(id, cat) {
   });
 }
 export async function deleteCategory(id) {
-  const res = await fetch(`${API_BASE}/api/categories/${id}`, { method: "DELETE", headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) } });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`HTTP ${res.status}: ${txt}`);
-  }
-  return true;
+  return deleteFetch(`${API_BASE}/api/categories/${id}`);
 }
 
 // Marts
@@ -165,6 +169,18 @@ export async function uploadMartImage(id, file) {
     throw new Error(`HTTP ${res.status}: ${txt}`);
   }
   return res.json();
+}
+
+export async function deleteMart(id) {
+  return deleteFetch(`${API_BASE}/api/marts/${id}`);
+}
+
+export async function deletePath(id) {
+  return deleteFetch(`${API_BASE}/api/paths/${id}`);
+}
+
+export async function deleteSlamStart(id) {
+  return deleteFetch(`${API_BASE}/api/slam/${id}`);
 }
 
 // Upload an item image; returns { image_url }

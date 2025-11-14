@@ -1,5 +1,5 @@
 # routers/paths.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -27,3 +27,13 @@ async def create_path(path: PathCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(new_path)
     return new_path
+
+
+@router.delete("/{path_id}", status_code=204)
+async def delete_path(path_id: int, db: AsyncSession = Depends(get_db)):
+    obj = await db.get(Path, path_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Path not found")
+    await db.delete(obj)
+    await db.commit()
+    return Response(status_code=204)

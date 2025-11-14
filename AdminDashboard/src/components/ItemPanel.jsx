@@ -1,9 +1,20 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { API_BASE } from "../config";
 import { uploadItemImage } from "../api";
 
-export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, onSaveEdit, onDelete, onCancel, onPickHeading, categories = [] }) {
+export default function ItemPanel({
+  editMode,
+  newItem,
+  setNewItem,
+  onSaveNew,
+  onSaveEdit,
+  onDelete,
+  onCancel,
+  onPickHeading,
+  categories = [],
+  onCategorySelect,
+}) {
   const [pos, setPos] = useState({ left: 16, top: 16 });
   const [size, setSize] = useState({ width: 360, height: 520 });
   const [dragging, setDragging] = useState(false);
@@ -63,9 +74,28 @@ export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, on
         style={{ cursor: 'move', padding: '8px 10px', borderBottom: '1px solid #2a2a2e', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
       >
         <div style={{ fontWeight: 700 }}>{editMode ? 'Edit Item' : 'Create Item'}</div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button onClick={onSaveNew} disabled={editMode} style={{ padding: '4px 8px', opacity: editMode ? 0.5 : 1 }}>Save</button>
-          {editMode && <button onClick={onSaveEdit} style={{ padding: '4px 8px' }}>Update</button>}
+          {editMode && (
+            <>
+              <button onClick={onSaveEdit} style={{ padding: '4px 8px' }}>Update</button>
+              {typeof onDelete === "function" && (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  style={{
+                    padding: "4px 8px",
+                    background: "#7f1d1d",
+                    color: "#fee2e2",
+                    border: "1px solid #f87171",
+                    borderRadius: 6,
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+            </>
+          )}
           <button onClick={onCancel} style={{ padding: '4px 8px' }}>Close</button>
         </div>
       </div>
@@ -82,7 +112,17 @@ export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, on
           <option value="slam_start">slam_start</option>
         </select>
         <label>Category</label>
-        <select value={newItem.category_id ?? ""} onChange={(e)=>setNewItem((p)=>({...p, category_id: e.target.value ? Number(e.target.value) : null}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}>
+        <select
+          value={newItem.category_id ?? ""}
+          onChange={(e) => {
+            const val = e.target.value ? Number(e.target.value) : null;
+            if (typeof onCategorySelect === "function") {
+              onCategorySelect(val);
+            }
+            setNewItem((p) => ({ ...p, category_id: val }));
+          }}
+          style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}
+        >
           <option value="">(none)</option>
           {categories.map(c => (
             <option key={c.id} value={c.id}>{c.name}</option>
@@ -126,7 +166,44 @@ export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, on
         <label>Sale %</label>
         <input type="number" value={newItem.sale_percent} onChange={(e)=>setNewItem((p)=>({...p, sale_percent: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
         <label>Sale Ends</label>
-        <input type="datetime-local" value={newItem.sale_end_at || ""} onChange={(e)=>setNewItem((p)=>({...p, sale_end_at: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
+        <input
+          type="datetime-local"
+          value={newItem.sale_end_at || ""}
+          onChange={(e) => setNewItem((p) => ({ ...p, sale_end_at: e.target.value }))}
+          style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select
+            value={saleEndMonth}
+            onChange={(e) => setSaleEndMonth(Number(e.target.value))}
+            style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}
+          >
+            {monthOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={saleEndDay}
+            onChange={(e) => setSaleEndDay(e.target.value)}
+            style={{ width: 70, background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }}
+            placeholder="Day"
+          />
+          <button
+            type="button"
+            onClick={handleQuickSaleApply}
+            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #3f3f46", background: "#1e293b", color: "#e5e7eb", whiteSpace: "nowrap" }}
+          >
+            Set 23:59
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: "#9ca3af" }}>
+          Default day set to 15 at 23:59 for quick entry.
+        </div>
         <label>Note</label>
         <input value={newItem.note} onChange={(e)=>setNewItem((p)=>({...p, note: e.target.value}))} style={{ background: "#0b0b0f", color: "#e5e7eb", border: "1px solid #3f3f46", borderRadius: 6, padding: "6px 8px" }} />
         <label>Desc</label>
@@ -156,3 +233,43 @@ export default function ItemPanel({ editMode, newItem, setNewItem, onSaveNew, on
     </div>
   );
 }
+  const now = useMemo(() => new Date(), []);
+  const [saleEndMonth, setSaleEndMonth] = useState(() => now.getMonth() + 1);
+  const [saleEndDay, setSaleEndDay] = useState("15");
+
+  useEffect(() => {
+    if (!newItem.sale_end_at) {
+      setSaleEndMonth(now.getMonth() + 1);
+      setSaleEndDay("15");
+      return;
+    }
+    const dt = new Date(newItem.sale_end_at);
+    if (Number.isFinite(dt.getTime())) {
+      setSaleEndMonth(dt.getMonth() + 1);
+      setSaleEndDay(String(dt.getDate()));
+    }
+  }, [newItem.sale_end_at, now]);
+
+  const toLocalInputValue = (date) => {
+    const tz = date.getTimezoneOffset();
+    const local = new Date(date.getTime() - tz * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const handleQuickSaleApply = () => {
+    const monthNum = Math.min(12, Math.max(1, Number(saleEndMonth) || 1));
+    const dayNum = Math.min(31, Math.max(1, Number(saleEndDay) || 15));
+    const currentYear = now.getFullYear();
+    let targetYear = currentYear;
+    if (monthNum < now.getMonth() + 1) {
+      targetYear += 1;
+    }
+    const dt = new Date(targetYear, monthNum - 1, dayNum, 23, 59, 0);
+    const value = toLocalInputValue(dt);
+    setNewItem((prev) => ({ ...prev, sale_end_at: value }));
+  };
+
+  const monthOptions = useMemo(
+    () => Array.from({ length: 12 }, (_, idx) => idx + 1),
+    []
+  );

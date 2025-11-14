@@ -1,5 +1,5 @@
 # routers/slam.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
@@ -44,3 +44,13 @@ async def update_slam_start(slam_id: int, payload: SlamStartCreate, db: AsyncSes
     await db.commit()
     await db.refresh(row)
     return SlamStartRead(id=row.id, x=float(row.x), y=float(row.y), z=float(row.z) if row.z is not None else None, heading_deg=float(row.heading_deg) if getattr(row, 'heading_deg', None) is not None else None)
+
+
+@router.delete("/{slam_id}", status_code=204)
+async def delete_slam_start(slam_id: int, db: AsyncSession = Depends(get_db)):
+    row = await db.get(SlamStart, slam_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="SLAM start not found")
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=204)

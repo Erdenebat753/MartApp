@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Alert, TextInput, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useItems } from "../../hooks/useItems";
 import { useCategories } from "../../hooks/useCategories";
 import { useMartMeta } from "../../hooks/useMartMeta";
@@ -12,12 +13,12 @@ import {
   HStack,
   VStack,
   Text,
-  Input,
   ScrollView,
   Badge,
   Icon,
   Heading,
   Image,
+  Modal,
 } from "native-base";
 import {
   MagnifyingGlass,
@@ -37,7 +38,8 @@ export default function HomePage() {
     for (const c of categories || []) m.set(Number(c.id), String(c.name));
     return m;
   }, [categories]);
-  const { lists, create, update, remove, removeItem, appendItems } = useLists();
+  const { lists, create, update, remove, removeItem, appendItems, reload } =
+    useLists();
   // Removed free-text list name input; use one-click Add
   const itemsById = useMemo(
     () => new Map(items.map((it) => [it.id, it] as const)),
@@ -72,6 +74,12 @@ export default function HomePage() {
     }
   }, [safeLists, selectedListId]);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      reload();
+    }, [reload])
+  );
+
   const selectedListName = React.useMemo(() => {
     const l = safeLists.find((x: any) => (x as any)?.id === selectedListId);
     return (l as any)?.name || (selectedListId != null ? `List #${selectedListId}` : "없음");
@@ -92,6 +100,8 @@ export default function HomePage() {
     setQty(listId, itemId, getQty(listId, itemId) + 1);
   const decQty = (listId: number, itemId: number) =>
     setQty(listId, itemId, getQty(listId, itemId) - 1);
+  const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
+  const [modalImageUri, setModalImageUri] = useState<string | null>(null);
 
   const effectivePrice = (it: any): number => {
     const base = Number(it?.price ?? 0) || 0;
@@ -205,88 +215,172 @@ export default function HomePage() {
     const line = unit * q;
     const saleInfo = it ? saleLeft(it) : null;
     const note = it?.note || null;
+    const description = it?.description || null;
     const cat = it?.category_id != null ? catNameOf.get(Number(it.category_id)) : null;
+    const basePrice = Math.round(Number(it?.price ?? 0) || 0);
+    const salePercent =
+      it?.sale_percent != null ? Number(it.sale_percent) : null;
+    const saleEndDate = it?.sale_end_at ? new Date(it.sale_end_at) : null;
+    const now = new Date();
+    const saleActive =
+      salePercent != null &&
+      salePercent > 0 &&
+      (!saleEndDate || now <= saleEndDate);
+    const saleEndsLabel = saleEndDate
+      ? saleEndDate.toLocaleString("ko-KR", {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
+    const isExpanded = expandedItemId === id;
     return (
-      <HStack
+      <Box
         key={id}
-        alignItems="center"
-        justifyContent="space-between"
-        bg="#151515"
-        rounded="md"
-        px={2.5}
-        py={2}
+        bg="#12121a"
+        borderWidth={1}
+        borderColor="#1c1c24"
+        rounded="xl"
+        px={3}
+        py={3}
+        shadow={1}
       >
-        <HStack alignItems="center" space={3} flex={1}>
-          {uri ? (
-            <Image
-              source={{ uri }}
-              alt={it?.name || String(id)}
-              width={10}
-              height={10}
-              borderRadius={8}
-            />
-          ) : (
-            <Box width={10} height={10} borderRadius={8} bg="#1f2937" />
-          )}
-          <VStack flex={1}>
-            <Text color="white" numberOfLines={1}>
-              {it?.name ?? `#${id}`}
-            </Text>
-            <HStack space={2} alignItems="center">
-              <Text color="#9ca3af" fontSize="xs">
-                {fmtPrice(unit)}
-              </Text>
-              {cat && (
-                <Badge colorScheme="coolGray" rounded="full" _text={{ fontSize: 10 }}>
-                  {cat}
-                </Badge>
-              )}
-              {saleInfo && (
-                <Badge
-                  colorScheme="rose"
-                  rounded="full"
-                  _text={{ fontSize: 10 }}
-                >
-                  {saleInfo}
-                </Badge>
-              )}
-            </HStack>
-            {note && (
-              <Text color="#9ca3af" fontSize="xs" numberOfLines={1}>
-                {note}
-              </Text>
+        <HStack alignItems="center" space={4}>
+          <Pressable
+            onPress={() => {
+              setExpandedItemId(isExpanded ? null : id);
+            }}
+            onLongPress={() => uri && setModalImageUri(uri)}
+            delayLongPress={250}
+            hitSlop={10}
+            style={{ borderRadius: 16 }}
+          >
+            {uri ? (
+              <Image
+                source={{ uri }}
+                alt={it?.name || String(id)}
+                width={16}
+                height={16}
+                borderRadius={16}
+              />
+            ) : (
+              <Box
+                width={16}
+                height={16}
+                borderRadius={16}
+                bg="#1f2937"
+              />
             )}
+          </Pressable>
+          <Pressable
+            onPress={() => setExpandedItemId(isExpanded ? null : id)}
+            style={{ flex: 1 }}
+          >
+            <VStack flex={1} space={1}>
+              <HStack alignItems="flex-start" justifyContent="space-between">
+                <Text color="white" fontSize="md" fontWeight="600" numberOfLines={1}>
+                  {it?.name ?? `#${id}`}
+                </Text>
+                <VStack alignItems="flex-end" space={0}>
+                  {saleActive && (
+                    <Text
+                      color="#9ca3af"
+                      fontSize="xs"
+                      textDecorationLine="line-through"
+                    >
+                      {fmtPrice(basePrice)}
+                    </Text>
+                  )}
+                  <Text color="#e5e7eb" fontSize="sm">
+                    {fmtPrice(unit)}
+                  </Text>
+                </VStack>
+              </HStack>
+              <HStack alignItems="center" flexWrap="wrap" space={1}>
+                {cat && (
+                  <Badge colorScheme="coolGray" rounded="full" _text={{ fontSize: 10 }}>
+                    {cat}
+                  </Badge>
+                )}
+                {saleInfo && (
+                  <Badge colorScheme="rose" rounded="full" _text={{ fontSize: 10 }}>
+                    {saleInfo}
+                  </Badge>
+                )}
+              </HStack>
+              {isExpanded && (
+                <>
+                  {note && (
+                    <Text color="#9ca3af" fontSize="xs" numberOfLines={1}>
+                      {note}
+                    </Text>
+                  )}
+                  {description && (
+                    <Text color="#7c88a1" fontSize="xs" numberOfLines={2}>
+                      {description}
+                    </Text>
+                  )}
+                  {saleActive && salePercent != null && (
+                    <Text color="#fbbf24" fontSize="xs">
+                      -{salePercent}% 할인{" "}
+                      {saleEndsLabel ? `· ${saleEndsLabel}까지` : "· 종료일 미정"}
+                    </Text>
+                  )}
+                </>
+              )}
+              <Text color="#9ca3af" fontSize="xs">
+                합계 {fmtPrice(line)}
+              </Text>
+            </VStack>
+          </Pressable>
+          <VStack space={2} alignItems="flex-end">
+            <HStack space={1}>
+              <Button size="sm" variant="ghost" onPress={() => decQty(listId, id)}>
+                -
+              </Button>
+              <TextInput
+                value={String(q)}
+                onChangeText={(t) => setQty(listId, id, Number(t))}
+                keyboardType="numeric"
+                style={{
+                  width: 56,
+                  backgroundColor: "#0d0d13",
+                  color: "#ffffff",
+                  textAlign: "center",
+                  borderRadius: 8,
+                  paddingHorizontal: 6,
+                  paddingVertical: 4,
+                  borderWidth: 1,
+                  borderColor: "#1c1c24",
+                }}
+              />
+              <Button size="sm" variant="ghost" onPress={() => incQty(listId, id)}>
+                +
+              </Button>
+            </HStack>
+            <Button
+              size="sm"
+              variant="ghost"
+              colorScheme="rose"
+              onPress={() => removeItem(listId, id)}
+            >
+              삭제
+            </Button>
           </VStack>
         </HStack>
-        <HStack space={2} alignItems="center">
-          <Button size="sm" variant="subtle" onPress={() => decQty(listId, id)}>
-            -
-          </Button>
-          <Input
-            width={12}
-            value={String(q)}
-            onChangeText={(t) => setQty(listId, id, Number(t))}
-            keyboardType="numeric"
-            textAlign="center"
-            bg="#0f0f12"
-            color="white"
-          />
-          <Button size="sm" variant="subtle" onPress={() => incQty(listId, id)}>
-            +
-          </Button>
-          <Text color="#e5e7eb" width={16} textAlign="right">
-            {fmtPrice(line)}
-          </Text>
-          <Button
-            size="sm"
-            variant="subtle"
-            onPress={() => removeItem(list.id, id)}
-          >
-            삭제
-          </Button>
-        </HStack>
-      </HStack>
+      </Box>
     );
+  };
+
+  const listTotalQty = (list: any) => {
+    const listId = (list as any)?.id ?? 0;
+    const ids: number[] = (list as any)?.item_ids || [];
+    let sum = 0;
+    for (const id of ids) {
+      sum += getQty(listId, id);
+    }
+    return sum;
   };
 
   const listTotal = (list: any) => {
@@ -474,6 +568,8 @@ export default function HomePage() {
                   {Array.isArray((l as any)?.item_ids)
                     ? (l as any).item_ids.length
                     : 0}
+                  {" · "}
+                  수량 합계: {listTotalQty(l)}
                 </Text>
                 {(l.item_ids || []).length > 0 && (
                   <VStack mt={2} space={1.5}>
@@ -520,6 +616,27 @@ export default function HomePage() {
             )}
           </VStack>
         </ScrollView>
+        <Modal
+          isOpen={Boolean(modalImageUri)}
+          onClose={() => setModalImageUri(null)}
+          size="full"
+        >
+          <Modal.Content bg="#0b0b0f" maxWidth="90%" rounded="2xl">
+            <Modal.CloseButton />
+            <Modal.Body>
+              {modalImageUri && (
+                <Image
+                  source={{ uri: modalImageUri }}
+                  alt="item"
+                  width="100%"
+                  height={260}
+                  borderRadius={16}
+                  resizeMode="contain"
+                />
+              )}
+            </Modal.Body>
+          </Modal.Content>
+        </Modal>
       </Box>
     </SafeAreaView>
   );

@@ -11,6 +11,8 @@ const STRINGS = {
     settings: "Settings",
     mart: "Mart",
     logout: "Logout",
+    active_mart: "Active Mart",
+    none: "None",
 
     // EditorSidebar
     all: "ALL",
@@ -21,6 +23,9 @@ const STRINGS = {
     view: "View",
     selection: "Selection",
     reload: "Reload",
+    select_segment_on: "Select Segment: ON",
+    select_segment_off: "Select Segment: OFF",
+    select_segment_hint: "Enable select mode then click a segment on the map.",
     clear: "Clear",
     save: "Save",
     compute: "Compute",
@@ -74,6 +79,8 @@ const STRINGS = {
     settings: "설정",
     mart: "마트",
     logout: "로그아웃",
+    active_mart: "현재 매장",
+    none: "없음",
 
     all: "전체",
     segments: "경로 세그먼트",
@@ -83,6 +90,9 @@ const STRINGS = {
     view: "보기",
     selection: "선택",
     reload: "새로고침",
+    select_segment_on: "세그먼트 선택: 켬",
+    select_segment_off: "세그먼트 선택: 끔",
+    select_segment_hint: "선택 모드를 켜고 지도에서 세그먼트를 클릭하세요.",
     clear: "지우기",
     save: "저장",
     compute: "계산",
