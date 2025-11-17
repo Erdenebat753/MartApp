@@ -20,7 +20,8 @@ router = APIRouter(prefix="/api/items", tags=["items"])
 def _slug_from_url(url: str | None) -> str | None:
     if not url:
         return None
-    return url.rsplit("/", 1)[-1]
+    clean = url.split("?", 1)[0].rstrip("/")
+    return clean.rsplit("/", 1)[-1] if clean else None
 
 
 def _point_in_polygon(x: float, y: float, points: list[dict]) -> bool:
@@ -173,7 +174,7 @@ async def upload_item_image(file: UploadFile = File(...), db: AsyncSession = Dep
     _, ext = os.path.splitext(file.filename or "")
     ext = (ext or ".bin").lower()
     fname = f"item_{uuid.uuid4().hex}{ext}"
-    await save_file(
+    saved = await save_file(
         db,
         slug=fname,
         contents=contents,
@@ -182,8 +183,9 @@ async def upload_item_image(file: UploadFile = File(...), db: AsyncSession = Dep
         original_name=file.filename,
     )
     await db.commit()
-    public_url = f"/uploads/{fname}"
-    return {"image_url": public_url}
+    if not saved.url:
+        raise HTTPException(status_code=500, detail="Failed to upload image")
+    return {"image_url": saved.url}
 
 
 @router.post("/{item_id}/image", response_model=ItemRead)
@@ -197,7 +199,7 @@ async def set_item_image(item_id: int, file: UploadFile = File(...), db: AsyncSe
     _, ext = os.path.splitext(file.filename or "")
     ext = (ext or ".bin").lower()
     fname = f"item_{item_id}_{uuid.uuid4().hex}{ext}"
-    await save_file(
+    saved = await save_file(
         db,
         slug=fname,
         contents=contents,
@@ -206,7 +208,7 @@ async def set_item_image(item_id: int, file: UploadFile = File(...), db: AsyncSe
         original_name=file.filename,
     )
     await delete_file_by_slug(db, _slug_from_url(obj.image_url))
-    obj.image_url = f"/uploads/{fname}"
+    obj.image_url = saved.url
     await db.commit()
     await db.refresh(obj)
     return obj

@@ -20,8 +20,7 @@ import { API_BASE } from "../../constants/api";
 import type { Item } from "../../src/types";
 import { useMartMeta } from "../../hooks/useMartMeta";
 import { useLists } from "../../hooks/useLists";
-import { useRouter } from "expo-router";
-import { useLists } from "../../hooks/useLists";
+import { useLocalSearchParams } from "expo-router";
 
 const YAW_STABLE_EPS = 0.05;
 const POS_STABLE_EPS = 1e-4;
@@ -68,14 +67,22 @@ export default function ARTab() {
   const { route, compute, clear, setPolyline } = useRouteCompute();
   const [routeIdx, setRouteIdx] = useState<number>(0);
   const [arrived, setArrived] = useState<boolean>(false);
+  const [routeYOffset, setRouteYOffset] = useState(-0.05); // meters relative to camera start Y
   const { lists } = useLists();
-  const safeLists = useMemo(() => (Array.isArray(lists) ? (lists as any[]) : []), [lists]);
+  const safeLists = useMemo(
+    () => (Array.isArray(lists) ? (lists as any[]) : []),
+    [lists]
+  );
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const [listRouteLoading, setListRouteLoading] = useState(false);
   const [listRouteMessage, setListRouteMessage] = useState<string | null>(null);
-  const router = useRouter();
+  const { listId } = useLocalSearchParams<{ listId?: string }>();
   const [pendingListId, setPendingListId] = useState<number | null>(null);
-  const [pendingListId, setPendingListId] = useState<number | null>(null);
+  // Current char1.glb animations found via GLB JSON
+  // Animation clips for Walking.fbx (set names if known)
+  const animClips: string[] = [];
+  const [activeAnimation, setActiveAnimation] = useState<string | undefined>();
+
   // Waypoint capture radius: 1 meter expressed in pixels using current ppm
   const waypointRadiusPx = 1.0 * ppm; // 1m zone
   const [debug, setDebug] = useState(false);
@@ -92,9 +99,15 @@ export default function ARTab() {
   const poseFrameHandleRef = React.useRef<number | null>(null);
   const flushPoseSampleRef = React.useRef<() => void>(() => {});
 
-  React.useEffect(() => { slamStartRef.current = slamStart; });
-  React.useEffect(() => { camStartRef.current = camStart; });
-  React.useEffect(() => { deviceYaw0Ref.current = deviceYaw0; });
+  React.useEffect(() => {
+    slamStartRef.current = slamStart;
+  });
+  React.useEffect(() => {
+    camStartRef.current = camStart;
+  });
+  React.useEffect(() => {
+    deviceYaw0Ref.current = deviceYaw0;
+  });
   React.useEffect(() => {
     if (selectedListId == null && safeLists.length > 0) {
       const idVal = (safeLists[0] as any)?.id;
@@ -105,15 +118,12 @@ export default function ARTab() {
   }, [safeLists, selectedListId]);
 
   React.useEffect(() => {
-    const state = router.getState();
-    const params = state?.routes?.[state.routes.length - 1]?.params as { listId?: string };
-    const idParam = params?.listId;
-    const parsed = idParam != null ? Number(idParam) : NaN;
-    if (!Number.isNaN(parsed)) {
-      setSelectedListId(parsed);
-      setPendingListId(parsed);
-    }
-  }, [router, safeLists.length]);
+    if (!listId) return;
+    const parsed = Number(listId);
+    if (Number.isNaN(parsed)) return;
+    setSelectedListId(parsed);
+    setPendingListId(parsed);
+  }, [listId]);
 
   const schedulePoseFlush = React.useCallback(() => {
     if (poseFrameHandleRef.current != null) return;
@@ -188,30 +198,37 @@ export default function ARTab() {
     [schedulePoseFlush]
   );
 
-  const handleTrackingState = React.useCallback((st: string, rsn: string) => {
-    try {
-      const s = `${st} ${rsn}`.toLowerCase();
-      // Default optimistic: tracking is OK unless explicit negative markers appear
-      let ok = true;
-      const negatives = [
-        "limited",
-        "relocal",
-        "insufficient",
-        "excessive",
-        "unavailable",
-        "not available",
-        "paused",
-        "stopped",
-      ];
-      for (const n of negatives) {
-        if (s.includes(n)) { ok = false; break; }
+  const handleTrackingState = React.useCallback(
+    (st: string, rsn: string) => {
+      try {
+        const s = `${st} ${rsn}`.toLowerCase();
+        // Default optimistic: tracking is OK unless explicit negative markers appear
+        let ok = true;
+        const negatives = [
+          "limited",
+          "relocal",
+          "insufficient",
+          "excessive",
+          "unavailable",
+          "not available",
+          "paused",
+          "stopped",
+        ];
+        for (const n of negatives) {
+          if (s.includes(n)) {
+            ok = false;
+            break;
+          }
+        }
+        trackingOKRef.current = ok;
+      } catch {
+        trackingOKRef.current = true;
       }
-      trackingOKRef.current = ok;
-    } catch {
-      trackingOKRef.current = true;
-    }
-    if (debug) console.log("[AR tracking]", st, rsn, "ok=", trackingOKRef.current);
-  }, [debug]);
+      if (debug)
+        console.log("[AR tracking]", st, rsn, "ok=", trackingOKRef.current);
+    },
+    [debug]
+  );
 
   const isFocused = useIsFocused();
 
@@ -222,7 +239,6 @@ export default function ARTab() {
     if (x < 0) x += 360;
     return x;
   };
-
 
   // Use SLAM start once, then update by Viro camera deltas
   const onSlamUser = React.useCallback((p: Point) => {
@@ -280,7 +296,10 @@ export default function ARTab() {
     const beta = 0.7; // higher => smoother (but laggier)
     setUser((prev) =>
       prev
-        ? { x: prev.x * beta + target.x * (1 - beta), y: prev.y * beta + target.y * (1 - beta) }
+        ? {
+            x: prev.x * beta + target.x * (1 - beta),
+            y: prev.y * beta + target.y * (1 - beta),
+          }
         : target
     );
   }, [
@@ -327,48 +346,53 @@ export default function ARTab() {
     ]);
   };
 
-  const handleRouteList = React.useCallback(async (forceListId?: number) => {
-    if (!user) {
-      Alert.alert("No location", "Current location is not set yet.");
-      return;
-    }
-    const targetListId = forceListId ?? selectedListId;
-    if (!targetListId) {
-      setListRouteMessage("Select a list first.");
-      return;
-    }
-    const list = safeLists.find((l) => (l as any)?.id === targetListId);
-    const ids = Array.isArray(list?.item_ids) ? list?.item_ids : [];
-    if (!ids.length) {
-      setListRouteMessage("Selected list contains no items.");
-      return;
-    }
-    setListRouteLoading(true);
-    setListRouteMessage(null);
-    try {
-      const payload = { user: { x: user.x, y: user.y }, item_ids: ids };
-      const res = await fetch(`${API_BASE}/api/route/list`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Route request failed");
+  const handleRouteList = React.useCallback(
+    async (forceListId?: number) => {
+      if (!user) {
+        Alert.alert("No location", "Current location is not set yet.");
+        return;
       }
-      const data = await res.json();
-      if (Array.isArray(data?.polyline)) {
-        setPolyline(data.polyline);
+      const targetListId = forceListId ?? selectedListId;
+      if (!targetListId) {
+        setListRouteMessage("Select a list first.");
+        return;
       }
-      setRouteIdx(0);
-      setArrived(false);
-      setListRouteMessage(`Routing ${data?.ordered_ids?.length ?? ids.length} item(s).`);
-    } catch (e: any) {
-      setListRouteMessage(e?.message || "Route generation failed.");
-    } finally {
-      setListRouteLoading(false);
-    }
-  }, [selectedListId, safeLists, user, setPolyline]);
+      const list = safeLists.find((l) => (l as any)?.id === targetListId);
+      const ids = Array.isArray(list?.item_ids) ? list?.item_ids : [];
+      if (!ids.length) {
+        setListRouteMessage("Selected list contains no items.");
+        return;
+      }
+      setListRouteLoading(true);
+      setListRouteMessage(null);
+      try {
+        const payload = { user: { x: user.x, y: user.y }, item_ids: ids };
+        const res = await fetch(`${API_BASE}/api/route/list`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "Route request failed");
+        }
+        const data = await res.json();
+        if (Array.isArray(data?.polyline)) {
+          setPolyline(data.polyline);
+        }
+        setRouteIdx(0);
+        setArrived(false);
+        setListRouteMessage(
+          `Routing ${data?.ordered_ids?.length ?? ids.length} item(s).`
+        );
+      } catch (e: any) {
+        setListRouteMessage(e?.message || "Route generation failed.");
+      } finally {
+        setListRouteLoading(false);
+      }
+    },
+    [selectedListId, safeLists, user, setPolyline]
+  );
 
   React.useEffect(() => {
     if (pendingListId && user) {
@@ -418,6 +442,49 @@ export default function ARTab() {
     });
   }, [user, route, waypointRadiusPx]);
 
+  const displayRoute = useMemo(() => {
+    if (route && route.length) {
+      const idx = Math.min(routeIdx, route.length - 1);
+      const rem = route.slice(idx);
+      return user ? [{ x: user.x, y: user.y }, ...rem] : rem;
+    }
+    return route;
+  }, [route, routeIdx, user]);
+
+  const routeWorld = useMemo(() => {
+    if (!displayRoute || displayRoute.length < 2 || !slamStart || !camStart)
+      return [];
+    const yawRef = transUseCurrentYaw ? yawUsed : deviceYaw0 ?? yawUsed;
+    const theta = ((headingBase - yawRef) * Math.PI) / 180;
+    const sinT = Math.sin(theta);
+    const cosT = Math.cos(theta);
+    // Place line near the world floor so it's not floating with camera height
+    const baseY = (camStart?.[1] ?? 0) + routeYOffset;
+    return displayRoute.map((p) => {
+      const dxPx = p.x - slamStart.x;
+      const dyPx = p.y - slamStart.y;
+      const rx = dxPx / ppm;
+      const ry = -dyPx / ppm; // convert map down to AR up
+      const vx = cosT * rx + sinT * ry;
+      const vzForward = -sinT * rx + cosT * ry;
+      return [camStart[0] + vx, baseY, camStart[2] - vzForward] as [
+        number,
+        number,
+        number
+      ];
+    });
+  }, [
+    displayRoute,
+    slamStart,
+    camStart,
+    ppm,
+    headingBase,
+    transUseCurrentYaw,
+    yawUsed,
+    deviceYaw0,
+    routeYOffset,
+  ]);
+
   // Remaining distance (m) and ETA (s)
   const remaining = React.useMemo(() => {
     if (!route || route.length === 0) return { meters: 0, seconds: 0 } as const;
@@ -448,6 +515,8 @@ export default function ARTab() {
               alignment={alignment}
               onDevicePose={handleDevicePose}
               onTrackingState={handleTrackingState}
+              activeAnimation={activeAnimation}
+              routeWorld={routeWorld}
             />
           ) : (
             <View
@@ -462,6 +531,42 @@ export default function ARTab() {
             </View>
           )}
 
+          {/* Animation picker + Debug toggle */}
+          {animClips.length > 0 && (
+            <View
+              style={{
+                position: "absolute",
+                left: 8,
+                top: 8,
+                flexDirection: "row",
+                gap: 6,
+                zIndex: 1000,
+                elevation: 1000,
+              }}
+            >
+              {animClips.map((clip) => {
+                const isSel = activeAnimation === clip;
+                return (
+                  <Pressable
+                    key={clip}
+                    onPress={() => setActiveAnimation(clip)}
+                    style={{
+                      backgroundColor: isSel ? "#1e90ff" : "#00000088",
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: isSel ? "#63b3ff" : "#333",
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>
+                      Anim {clip}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           {/* Debug toggle */}
           <View
             style={{
@@ -601,6 +706,12 @@ export default function ARTab() {
                   user:
                   {user ? `${user.x.toFixed(1)},${user.y.toFixed(1)}` : "-"}
                 </Text>
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  route3D pts:{routeWorld?.length ?? 0} 2D:{route?.length ?? 0}
+                </Text>
+                <Text style={{ color: "#fff", fontSize: 11 }}>
+                  routeY:{routeYOffset.toFixed(3)}m
+                </Text>
               </View>
             )}
             <View style={{ flexDirection: "row", gap: 6 }}>
@@ -638,6 +749,28 @@ export default function ARTab() {
                 <Text style={{ color: "#fff", fontSize: 12 }}>
                   Trans Rot: {transUseCurrentYaw ? "CURRENT" : "BASE"}
                 </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setRouteYOffset((y) => y - 0.02)}
+                style={{
+                  backgroundColor: "#00000088",
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>Route Y-</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setRouteYOffset((y) => y + 0.02)}
+                style={{
+                  backgroundColor: "#00000088",
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>Route Y+</Text>
               </Pressable>
             </View>
             <Pressable
@@ -755,15 +888,7 @@ export default function ARTab() {
             mapWidthPx={mapWidthPx || 675}
             mapHeightPx={mapHeightPx || 878}
             backgroundSource={imageSource}
-            polyline={
-              route && route.length
-                ? (() => {
-                    const idx = Math.min(routeIdx, route.length - 1);
-                    const rem = route.slice(idx);
-                    return user ? [{ x: user.x, y: user.y }, ...rem] : rem;
-                  })()
-                : route
-            }
+            polyline={displayRoute}
             user={user}
             headingDeg={headingForMap}
             headingInvert={true}
@@ -805,8 +930,9 @@ export default function ARTab() {
               }}
             >
               <Text style={{ color: "#fff", fontSize: 12 }}>
-                Rem: {remaining.meters.toFixed(1)} m ETA: {
-                Math.floor(remaining.seconds / 60)}m {Math.round(remaining.seconds % 60)}s
+                Rem: {remaining.meters.toFixed(1)} m ETA:{" "}
+                {Math.floor(remaining.seconds / 60)}m{" "}
+                {Math.round(remaining.seconds % 60)}s
               </Text>
             </View>
             <View style={{ flexDirection: "row", gap: 6 }}>
@@ -835,9 +961,7 @@ export default function ARTab() {
               padding: 12,
             }}
           >
-            <Text
-              style={{ color: "#9ca3af", fontSize: 12, marginBottom: 6 }}
-            >
+            <Text style={{ color: "#9ca3af", fontSize: 12, marginBottom: 6 }}>
               Lists
             </Text>
             <ScrollView
@@ -871,10 +995,10 @@ export default function ARTab() {
                 );
               })}
             </ScrollView>
-              <Pressable
-                onPress={() => handleRouteList()}
-                disabled={listRouteLoading || !safeLists.length}
-                style={{
+            <Pressable
+              onPress={() => handleRouteList()}
+              disabled={listRouteLoading || !safeLists.length}
+              style={{
                 backgroundColor: listRouteLoading ? "#425e4f" : "#2e8b57",
                 borderRadius: 10,
                 paddingVertical: 12,

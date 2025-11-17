@@ -2,6 +2,7 @@ import mimetypes
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -28,6 +29,9 @@ async def serve_upload(slug: str, db: AsyncSession = Depends(get_db)):
             headers = {"Cache-Control": "public, max-age=3600"}
             return Response(content=data, media_type=media_type, headers=headers)
         raise HTTPException(status_code=404, detail="File not found")
+    if file.url:
+        # Redirect to Cloudinary URL to avoid DB/file serving
+        return RedirectResponse(url=file.url, status_code=307)
     media_type = file.content_type or "application/octet-stream"
     headers = {"Cache-Control": "public, max-age=31536000"}
     return Response(content=file.data, media_type=media_type, headers=headers)

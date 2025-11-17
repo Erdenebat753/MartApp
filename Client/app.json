@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "Client",
     "slug": "Client",
@@ -59,6 +59,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "749d9a3e-aef4-4e41-9400-784f60583dc3"
+      }
+    },
+    "owner": "erdenebat753"
   }
 }

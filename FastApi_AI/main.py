@@ -59,6 +59,19 @@ async def on_startup():
         init_intent_model()
     except Exception:
         pass
+    # Lightweight Cloudinary schema patch for Postgres (safe to re-run)
+    if not settings.is_sqlite:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("""
+                    ALTER TABLE stored_files
+                        ADD COLUMN IF NOT EXISTS url TEXT,
+                        ADD COLUMN IF NOT EXISTS cloudinary_public_id VARCHAR(255);
+                    ALTER TABLE stored_files
+                        ALTER COLUMN data DROP NOT NULL;
+                """))
+        except Exception:
+            pass
     # lightweight SQLite migration: ensure 'z' and 'heading_deg' columns exist on items
     if settings.is_sqlite:
         try:

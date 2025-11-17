@@ -5,15 +5,42 @@ import {
   ViroARScene,
   ViroText,
   ViroARSceneNavigator,
+  ViroAmbientLight,
+  Viro3DObject,
+  ViroPolyline,
+  ViroMaterials,
 } from "@reactvision/react-viro";
+import modelSource from "../assets/Walking.fbx";
 
 type Props = {
   onDevicePose?: (pos: [number, number, number], yawDeg: number) => void;
   onTrackingState?: (state: string, reason: string) => void;
   alignment?: "Gravity" | "GravityAndHeading" | "Camera";
+  // Allow any clip name so parent can pass whatever the GLB exposes
+  activeAnimation?: string;
+  routeWorld?: [number, number, number][];
 };
 
-function SceneWithHeading({ onDevicePose, onTrackingState }: Props) {
+ViroMaterials.createMaterials({
+  routeLine: {
+    diffuseColor: "#1e90ff",
+    lightingModel: "Constant",
+  },
+});
+
+const MODEL_SOURCE = modelSource;
+
+function SceneWithHeading({
+  onDevicePose,
+  onTrackingState,
+  activeAnimation,
+  routeWorld,
+}: Props) {
+  React.useEffect(() => {
+    // Log what Metro resolves so we can diagnose asset bundling issues
+    console.log("AR model source", MODEL_SOURCE);
+  }, []);
+
   const onCamUpdate = React.useCallback(
     (t: any) => {
       // Prefer yaw from forward vector to avoid platform-specific Euler issues.
@@ -22,7 +49,7 @@ function SceneWithHeading({ onDevicePose, onTrackingState }: Props) {
         const fx = Number(t.forward[0]);
         const fz = Number(t.forward[2]);
         // Android often uses +fz for forward. iOS typically -fz.
-        const denom = Platform.OS === 'android' ? fz : -fz;
+        const denom = Platform.OS === "android" ? fz : -fz;
         yawDeg = (Math.atan2(fx, denom) * 180) / Math.PI;
       } else if (Array.isArray(t?.rotation)) {
         yawDeg = Number(t.rotation[1]);
@@ -51,6 +78,37 @@ function SceneWithHeading({ onDevicePose, onTrackingState }: Props) {
       onCameraTransformUpdate={onCamUpdate}
       onTrackingUpdated={onTrack}
     >
+      <ViroAmbientLight color="#ffffff" intensity={850} />
+      <Viro3DObject
+        source={MODEL_SOURCE}
+        type="GLB"
+        position={[0, -0.2, -1]}
+        scale={[1.2, 1.2, 1.2]}
+        rotation={[0, 180, 0]}
+        visible
+        dragType="FixedDistance"
+        onLoadStart={() => console.log("Loading .glb...")}
+        onLoadEnd={() => console.log("Loaded .glb")}
+        animation={
+          activeAnimation
+            ? { name: activeAnimation, run: true, loop: true }
+            : undefined
+        }
+        onError={(e) => {
+          const detail = e?.nativeEvent
+            ? JSON.stringify(e.nativeEvent, null, 2)
+            : String(e);
+          console.warn("Failed to .glb", detail);
+        }}
+        resources={[]}
+      />
+      {routeWorld && routeWorld.length >= 2 && (
+        <ViroPolyline
+          points={routeWorld}
+          thickness={0.1}
+          materials={["routeLine"]}
+        />
+      )}
       <ViroText
         text="Hello AR World!"
         position={[0, 0, -1]}
@@ -66,15 +124,19 @@ export default function ARTestScreen({
   onDevicePose,
   onTrackingState,
   alignment = "GravityAndHeading",
+  activeAnimation,
+  routeWorld,
 }: Props) {
   const sceneFn = React.useCallback(
     () => (
       <SceneWithHeadingMemo
         onDevicePose={onDevicePose}
         onTrackingState={onTrackingState}
+        activeAnimation={activeAnimation}
+        routeWorld={routeWorld}
       />
     ),
-    [onDevicePose, onTrackingState]
+    [onDevicePose, onTrackingState, activeAnimation, routeWorld]
   );
   // Keep initialScene stable for the lifetime of the component to avoid AR scene remounts
   const initialSceneRef = React.useRef<{

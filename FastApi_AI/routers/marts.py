@@ -16,7 +16,8 @@ router = APIRouter(prefix="/api/marts", tags=["marts"])
 def _slug_from_url(url: str | None) -> str | None:
     if not url:
         return None
-    return url.rsplit("/", 1)[-1]
+    clean = url.split("?", 1)[0].rstrip("/")
+    return clean.rsplit("/", 1)[-1] if clean else None
 
 
 @router.get("", response_model=List[MartRead])
@@ -120,7 +121,7 @@ async def upload_mart_map_image(mart_id: int, file: UploadFile = File(...), db: 
     if not contents:
         raise HTTPException(status_code=400, detail="File is empty")
     img_w, img_h = _image_size(contents)
-    await save_file(
+    saved = await save_file(
         db,
         slug=fname,
         contents=contents,
@@ -129,10 +130,8 @@ async def upload_mart_map_image(mart_id: int, file: UploadFile = File(...), db: 
         original_name=file.filename,
     )
 
-    # Public URL path
-    public_url = f"/uploads/{fname}"
     await delete_file_by_slug(db, _slug_from_url(obj.map_image_url))
-    obj.map_image_url = public_url
+    obj.map_image_url = saved.url
     if img_w and img_h:
         obj.map_width_px = int(img_w)
         obj.map_height_px = int(img_h)

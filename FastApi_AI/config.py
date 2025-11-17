@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     JWT_SECRET: Optional[str] = Field(default="change-me-secret")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24)  # 24h
 
+    # Cloudinary for media storage
+    CLOUDINARY_URL: Optional[str] = None
+    CLOUDINARY_CLOUD_NAME: Optional[str] = None
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
+    CLOUDINARY_FOLDER: str = Field(default="store-nav")
+
     # Resolve env file: prefer .env, fall back to .env.sample (both relative to this file)
     _base_dir = os.path.dirname(os.path.abspath(__file__))
     _env_primary = os.path.join(_base_dir, ".env")

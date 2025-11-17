@@ -188,7 +188,9 @@ class StoredFile(Base):
     original_name = Column(String(255), nullable=True)
     content_type = Column(String(128), nullable=True)
     size_bytes = Column(Integer, nullable=False)
-    data = Column(LargeBinary, nullable=False)
+    data = Column(LargeBinary, nullable=True)  # legacy storage (now unused)
+    url = Column(Text, nullable=True)
+    cloudinary_public_id = Column(String(255), nullable=True)
     created_at = Column(
         TIMESTAMP,
         server_default=func.current_timestamp()
