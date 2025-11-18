@@ -10,7 +10,7 @@ import {
   ViroPolyline,
   ViroMaterials,
 } from "@reactvision/react-viro";
-import modelSource from "../assets/Walking.fbx";
+import modelSource from "../assets/Walking.vrx";
 
 type Props = {
   onDevicePose?: (pos: [number, number, number], yawDeg: number) => void;
@@ -81,14 +81,14 @@ function SceneWithHeading({
       <ViroAmbientLight color="#ffffff" intensity={850} />
       <Viro3DObject
         source={MODEL_SOURCE}
-        type="GLB"
+        type="VRX"
         position={[0, -0.2, -1]}
-        scale={[1.2, 1.2, 1.2]}
+        scale={[0.12, 0.12, 0.12]}
         rotation={[0, 180, 0]}
         visible
         dragType="FixedDistance"
-        onLoadStart={() => console.log("Loading .glb...")}
-        onLoadEnd={() => console.log("Loaded .glb")}
+        onLoadStart={() => console.log("Loading Walking.vrx...")}
+        onLoadEnd={() => console.log("Loaded Walking.vrx")}
         animation={
           activeAnimation
             ? { name: activeAnimation, run: true, loop: true }
@@ -98,7 +98,7 @@ function SceneWithHeading({
           const detail = e?.nativeEvent
             ? JSON.stringify(e.nativeEvent, null, 2)
             : String(e);
-          console.warn("Failed to .glb", detail);
+          console.warn("Failed to load Walking.vrx", detail);
         }}
         resources={[]}
       />

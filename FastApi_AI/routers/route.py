@@ -165,6 +165,8 @@ def _connect_nearby_nodes(graph: Dict[str, Dict[str, float]], coords_by_key: Dic
                 graph[kj][ki] = min(graph[kj].get(ki, float('inf')), w)
 
 def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float], graph, coords_by_key, polylines, algorithm: str = "dijkstra"):
+    algo = (algorithm or "").lower()
+
     # snap endpoints
     def best_projection(p):
         best=None; best_d=float('inf')
@@ -279,10 +281,22 @@ def _shortest_polyline_between(start: Tuple[float,float], end: Tuple[float,float
                     heapq.heappush(open_pq, (tentative + h(v), tentative, v))
         return prev
 
-    if (algorithm or "").lower() == "astar":
-        prev = astar_search()
-    else:
-        prev = dijkstra_search()
+    def _run_search():
+        return astar_search() if algo == "astar" else dijkstra_search()
+
+    prev = _run_search()
+
+    if E not in prev:
+        # Fallback snap: if projection nodes still don't reach the graph (e.g. start/end
+        # slightly off drawn segments), connect to a few nearest graph nodes and retry.
+        near_start = sorted(coords_by_key.items(), key=lambda kv: _dist(start, kv[1]))[:3]
+        near_end = sorted(coords_by_key.items(), key=lambda kv: _dist(end, kv[1]))[:3]
+        for k, pt in near_start:
+            add_edge(S, k, _dist(start, pt))
+        for k, pt in near_end:
+            add_edge(k, E, _dist(end, pt))
+        prev = _run_search()
+
     if E not in prev:
         # cleanup before returning
         for cleanup_key in (S, E, sq_k, eq_k):

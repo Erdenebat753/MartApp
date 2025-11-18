@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 
-export default function ItemsList({ items = [], filterText, slamStart, onDeleteItem, deletingId }) {
+export default function ItemsList({ items = [], filterText, slamStart, onDeleteItem, deletingId, onEditItem, onEditSlamStart }) {
   const list = useMemo(() => {
     const t = (filterText || "").toLowerCase();
     return items.filter(
@@ -8,16 +8,28 @@ export default function ItemsList({ items = [], filterText, slamStart, onDeleteI
     );
   }, [items, filterText]);
   const canDelete = typeof onDeleteItem === "function";
+  const canEdit = typeof onEditItem === "function";
+  const canEditSlam = typeof onEditSlamStart === "function";
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
       {slamStart && (
-        <div style={{ padding: 8, border: "1px solid var(--border)", borderRadius: 8, background: "var(--panel)" }}>
-          <div style={{ color: '#a78bfa', fontWeight: 700, marginBottom: 4 }}>SLAM Start</div>
-          <div style={{ fontSize: 12, color: 'var(--text)' }}>
-            ({Math.round(Number(slamStart.x))}, {Math.round(Number(slamStart.y))})
-            {typeof slamStart.heading_deg === 'number' ? ` · ${slamStart.heading_deg}°` : ''}
+        <div style={{ padding: 8, border: "1px solid var(--border)", borderRadius: 8, background: "var(--panel)", display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+          <div>
+            <div style={{ color: '#a78bfa', fontWeight: 700, marginBottom: 4 }}>SLAM Start</div>
+            <div style={{ fontSize: 12, color: 'var(--text)' }}>
+              ({Math.round(Number(slamStart.x))}, {Math.round(Number(slamStart.y))})
+              {typeof slamStart.heading_deg === 'number' ? ` · ${slamStart.heading_deg}°` : ''}
+            </div>
           </div>
+          {canEditSlam && (
+            <button
+              onClick={(e)=>{ e.stopPropagation(); onEditSlamStart(); }}
+              style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #3b82f6", background: "transparent", color: "#bfdbfe", fontSize: 11 }}
+            >
+              Edit
+            </button>
+          )}
         </div>
       )}
       {list.map((it) => (
@@ -32,6 +44,21 @@ export default function ItemsList({ items = [], filterText, slamStart, onDeleteI
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ fontSize: 11, opacity: 0.8 }}>({Math.round(it.x)}, {Math.round(it.y)})</div>
+            {canEdit && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEditItem(it); }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #3b82f6",
+                  background: "transparent",
+                  color: "#bfdbfe",
+                  fontSize: 11,
+                }}
+              >
+                Edit
+              </button>
+            )}
             {canDelete && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDeleteItem(it); }}

@@ -10,6 +10,7 @@ config.resolver.assetExts = [
   "glb",
   "gltf",
   "fbx",
+  "vrx",
 ];
 
 module.exports = config;

@@ -15,9 +15,11 @@ import {
   updateItem,
   deleteItem,
   deleteSegment,
+  createSlamStart,
+  getSlamStart,
+  updateSlamStart,
+  deleteSlamStart,
 } from "../api";
-import { createSlamStart } from "../api";
-import { getSlamStart } from "../api";
 import { getCategories, createCategory } from "../api";
 import EditorSidebar from "../components/EditorSidebar";
 import MapCanvas from "../components/MapCanvas";
@@ -226,10 +228,18 @@ export default function AdminMapPage() {
 
   const findNearestItem = useCallback(
     (p) => {
-      if (!items.length) return null;
+      const candidates = Array.isArray(items) ? [...items] : [];
+      if (slamStart) {
+        candidates.push({
+          ...slamStart,
+          name: slamStart.name || "SLAM Start",
+          type: "slam_start",
+        });
+      }
+      if (!candidates.length) return null;
       let best = null;
       let bestD2 = SNAP_THRESHOLD_PX * SNAP_THRESHOLD_PX;
-      for (const it of items) {
+      for (const it of candidates) {
         const dx = it.x - p.x;
         const dy = it.y - p.y;
         const d2 = dx * dx + dy * dy;
@@ -240,7 +250,7 @@ export default function AdminMapPage() {
       }
       return best;
     },
-    [items]
+    [items, slamStart]
   );
 
   function pointToSegmentDistance(p, a, b) {
@@ -277,6 +287,76 @@ export default function AdminMapPage() {
     },
     [categories]
   );
+
+  const beginEditItem = useCallback((it) => {
+    if (!it) return;
+    setEditMode(true);
+    setCreateMode(false);
+    setDrawMode(false);
+    setRouteMode(false);
+    setSelectSegMode(false);
+    setSelectedItem(it);
+    setNewItem({
+      name: it.name || "SLAM Start",
+      type: it.type,
+      x: it.x,
+      y: it.y,
+      z: it.z ?? "",
+      image_url: it.image_url || "",
+      note: it.note || "",
+      price: it.price ?? "",
+      sale_percent: it.sale_percent ?? "",
+      sale_end_at: it.sale_end_at ? String(it.sale_end_at).slice(0, 16) : "",
+      description: it.description || "",
+      heading_deg: it.heading_deg ?? "",
+      category_id: it.category_id ?? null,
+    });
+    setNewItemPos({ x: it.x, y: it.y });
+    setCategoryLocked(it.category_id != null);
+  }, []);
+
+  const handleEditItem = useCallback(
+    (it) => {
+      if (!it) return;
+      beginEditItem(it);
+    },
+    [beginEditItem]
+  );
+
+  const handleEditSlamStart = useCallback(() => {
+    if (!slamStart) return;
+    beginEditItem({
+      ...slamStart,
+      name: slamStart.name || "SLAM Start",
+      type: "slam_start",
+    });
+  }, [slamStart, beginEditItem]);
+
+  const toggleCreateMode = useCallback(() => {
+    setCreateMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setDrawMode(false);
+        setRouteMode(false);
+        setEditMode(false);
+        setSelectSegMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleEditMode = useCallback(() => {
+    setEditMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setDrawMode(false);
+        setRouteMode(false);
+        setCreateMode(false);
+        setSelectSegMode(false);
+      }
+      return next;
+    });
+  }, []);
 
   const handleMapClick = useCallback(
     async (eOrPoint) => {
@@ -332,7 +412,8 @@ export default function AdminMapPage() {
           if (!isNaN(baseX) && !isNaN(baseY)) {
             const dx = p.x - baseX;
             const dy = p.y - baseY;
-            let deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+            // Define 0° as "forward/up" on the map (negative Y axis)
+            let deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
             if (deg < 0) deg += 360;
             setNewItem((prev) => ({
               ...prev,
@@ -379,26 +460,7 @@ export default function AdminMapPage() {
       if (editMode) {
         const it = findNearestItem(p);
         if (it) {
-          setSelectedItem(it);
-          setNewItem({
-            name: it.name,
-            type: it.type,
-            x: it.x,
-            y: it.y,
-            z: it.z ?? "",
-            image_url: it.image_url || "",
-            note: it.note || "",
-            price: it.price ?? "",
-            sale_percent: it.sale_percent ?? "",
-            sale_end_at: it.sale_end_at
-              ? String(it.sale_end_at).slice(0, 16)
-              : "",
-            description: it.description || "",
-            heading_deg: it.heading_deg ?? "",
-            category_id: it.category_id ?? null,
-          });
-          setNewItemPos({ x: it.x, y: it.y });
-          setCategoryLocked(it.category_id != null);
+          beginEditItem(it);
         }
         return;
       }
@@ -420,6 +482,7 @@ export default function AdminMapPage() {
       mapHeightPx,
       findCategoryForPoint,
       categoryLocked,
+      beginEditItem,
     ]
   );
 
@@ -596,6 +659,29 @@ export default function AdminMapPage() {
 
   const saveEditedItem = useCallback(async () => {
     if (!selectedItem) return;
+    if (selectedItem.type === "slam_start") {
+      try {
+        await updateSlamStart(selectedItem.id, {
+          x: Number(newItem.x ?? newItemPos?.x ?? selectedItem.x),
+          y: Number(newItem.y ?? newItemPos?.y ?? selectedItem.y),
+          z: newItem.z === "" ? null : Number(newItem.z),
+          heading_deg:
+            newItem.heading_deg === "" || newItem.heading_deg == null
+              ? null
+              : Number(newItem.heading_deg),
+        });
+        const refreshed = await getSlamStart();
+        setSlamStart(refreshed);
+        setSelectedItem(
+          refreshed
+            ? { ...refreshed, name: refreshed.name || "SLAM Start", type: "slam_start" }
+            : null
+        );
+      } catch (e) {
+        alert("Update SLAM start failed: " + (e?.message || e));
+      }
+      return;
+    }
     const { heading_deg, ...rest } = newItem;
     const payload = {
       ...rest,
@@ -640,8 +726,13 @@ export default function AdminMapPage() {
     if (!ok) return;
     try {
       setLastDeleted({ ...selectedItem });
-      await deleteItem(selectedItem.id);
-      setItems((prev) => prev.filter((it) => it.id !== selectedItem.id));
+      if (selectedItem.type === "slam_start") {
+        await deleteSlamStart(selectedItem.id);
+        setSlamStart(null);
+      } else {
+        await deleteItem(selectedItem.id);
+        setItems((prev) => prev.filter((it) => it.id !== selectedItem.id));
+      }
       setSelectedItem(null);
       setNewItemPos(null);
       setNewItem({
@@ -660,36 +751,38 @@ export default function AdminMapPage() {
         category_id: null,
       });
       setCategoryLocked(false);
-      setToast({
-        message: "Item deleted",
-        actionText: "Undo",
-        onAction: async () => {
-          try {
-            if (lastDeleted) {
-              const restored = await createItem({
-                name: lastDeleted.name,
-                type: lastDeleted.type,
-                x: lastDeleted.x,
-                y: lastDeleted.y,
-                z: lastDeleted.z ?? null,
-                image_url: lastDeleted.image_url || null,
-                note: lastDeleted.note || null,
-                price: lastDeleted.price ?? null,
-                sale_percent: lastDeleted.sale_percent ?? null,
-                description: lastDeleted.description || null,
-              });
-              setItems((prev) =>
-                Array.isArray(prev) ? [...prev, restored] : [restored]
-              );
-              setLastDeleted(null);
-              setToast(null);
+      if (selectedItem.type !== "slam_start") {
+        setToast({
+          message: "Item deleted",
+          actionText: "Undo",
+          onAction: async () => {
+            try {
+              if (lastDeleted) {
+                const restored = await createItem({
+                  name: lastDeleted.name,
+                  type: lastDeleted.type,
+                  x: lastDeleted.x,
+                  y: lastDeleted.y,
+                  z: lastDeleted.z ?? null,
+                  image_url: lastDeleted.image_url || null,
+                  note: lastDeleted.note || null,
+                  price: lastDeleted.price ?? null,
+                  sale_percent: lastDeleted.sale_percent ?? null,
+                  description: lastDeleted.description || null,
+                });
+                setItems((prev) =>
+                  Array.isArray(prev) ? [...prev, restored] : [restored]
+                );
+                setLastDeleted(null);
+                setToast(null);
+              }
+            } catch (e) {
+              alert("Undo failed: " + (e?.message || e));
             }
-          } catch (e) {
-            alert("Undo failed: " + (e?.message || e));
-          }
-        },
-      });
-      setTimeout(() => setToast(null), 5000);
+          },
+        });
+        setTimeout(() => setToast(null), 5000);
+      }
     } catch (e) {
       alert("Delete failed: " + (e?.message || e));
     }
@@ -745,7 +838,7 @@ export default function AdminMapPage() {
         }}
         onComputeRoute={handleComputeRoute}
         onUseSlamStart={() => {
-          const s = items.find((it) => it.type === "slam_start");
+          const s = slamStart || items.find((it) => it.type === "slam_start");
           if (s) setRouteStart({ x: Number(s.x), y: Number(s.y) });
           else alert("No SLAM start item found");
         }}
@@ -763,6 +856,14 @@ export default function AdminMapPage() {
             setItems(it);
           } catch (error) {
             if (process?.env?.NODE_ENV !== 'production') console.warn('reload items failed', error);
+          }
+        }}
+        onReloadSlam={async () => {
+          try {
+            const s = await getSlamStart();
+            setSlamStart(s);
+          } catch (error) {
+            if (process?.env?.NODE_ENV !== 'production') console.warn('reload slam failed', error);
           }
         }}
         search={search}
@@ -898,7 +999,20 @@ export default function AdminMapPage() {
       )}
 
       {showSidebar && (
-        <ItemsSidebar items={items} filterText={search} slamStart={slamStart} />
+        <ItemsSidebar
+          items={items}
+          filterText={search}
+          slamStart={slamStart}
+          createMode={createMode}
+          editMode={editMode}
+          onToggleCreateMode={toggleCreateMode}
+          onToggleEditMode={toggleEditMode}
+          onDeleteSelectedItem={handleDeleteItem}
+          selectedItem={selectedItem}
+          onHideSidebar={() => setShowSidebar(false)}
+          onEditItem={handleEditItem}
+          onEditSlamStart={handleEditSlamStart}
+        />
       )}
 
       {mousePos && (

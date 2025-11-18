@@ -165,13 +165,17 @@ export default function Map2D({
   }
 
   const rotationPivot = useMemo(() => {
+    if (rotateMap) {
+      // When rotating the map, spin around the viewport center (user is centered via centerOnUser)
+      return { x: width / 2, y: height / 2 };
+    }
     const baseX = baseUserScreen?.x ?? width / 2;
     const baseY = baseUserScreen?.y ?? height / 2;
     return {
       x: baseX + effectiveShift.x,
       y: baseY + effectiveShift.y,
     };
-  }, [baseUserScreen, effectiveShift.x, effectiveShift.y, width, height]);
+  }, [rotateMap, baseUserScreen, effectiveShift.x, effectiveShift.y, width, height]);
 
   const screenToMap = useCallback(
     (screenX: number, screenY: number) => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+﻿import { useEffect, useRef } from "react";
 import { API_BASE } from "../constants/api";
 import { log } from "../src/logger";
 
@@ -12,16 +12,16 @@ export function useSlamStart(
     if (initialized.current) return;
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/slam`);
+        const r = await fetch(API_BASE + "/api/slam");
         const j = await r.json();
         if (j) {
           log.debug('[useSlamStart] slam_start from API:', j);
           setUser({ x: Number(j.x), y: Number(j.y) });
-          // Admin stores 0° = +X (east). Client uses 0° = up/north.
+          // Admin now stores 0 deg as "forward/up" – normalize only
           const raw = Number(j.heading_deg || 0);
-          let conv = (raw + 90) % 360;
-          if (conv < 0) conv += 360;
-          setHeading(conv);
+          let normalized = raw % 360;
+          if (normalized < 0) normalized += 360;
+          setHeading(normalized);
           initialized.current = true;
         }
       } catch (e) {

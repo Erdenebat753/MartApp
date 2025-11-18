@@ -94,6 +94,18 @@ export async function createSlamStart(data) {
   });
 }
 
+export async function updateSlamStart(id, data) {
+  return jsonFetch(`${API_BASE}/api/slam/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      x: Number(data.x),
+      y: Number(data.y),
+      z: data.z === "" || data.z == null ? null : Number(data.z),
+      heading_deg: data.heading_deg === "" || data.heading_deg == null ? null : Number(data.heading_deg),
+    }),
+  });
+}
+
 export async function updateItem(id, item) {
   return jsonFetch(`${API_BASE}/api/items/${id}`, {
     method: "PUT",

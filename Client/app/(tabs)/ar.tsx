@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Platform,
   View,
   Dimensions,
   Text,
@@ -60,13 +61,12 @@ export default function ARTab() {
   const [ppm, setPpm] = useState<number>(100);
   // Use current device yaw for transforming AR camera deltas (better intuition)
   const [transUseCurrentYaw, setTransUseCurrentYaw] = useState<boolean>(true);
-  const [rotateMap, setRotateMap] = useState<boolean>(true);
+  const [rotateMap, setRotateMap] = useState<boolean>(false);
   const yawSmoothRef = React.useRef<number>(0);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const { route, compute, clear, setPolyline } = useRouteCompute();
   const [routeIdx, setRouteIdx] = useState<number>(0);
-  const [arrived, setArrived] = useState<boolean>(false);
   const [routeYOffset, setRouteYOffset] = useState(-0.05); // meters relative to camera start Y
   const { lists } = useLists();
   const safeLists = useMemo(
@@ -79,10 +79,12 @@ export default function ARTab() {
   const { listId } = useLocalSearchParams<{ listId?: string }>();
   const [pendingListId, setPendingListId] = useState<number | null>(null);
   // Current char1.glb animations found via GLB JSON
-  // Animation clips for Walking.fbx (set names if known)
-  const animClips: string[] = [];
-  const [activeAnimation, setActiveAnimation] = useState<string | undefined>();
-
+  // Mixamo-exported clip name inside Walking.vrx
+  const animClips = ["mixamo.com"] as const;
+  type BodyAnim = (typeof animClips)[number];
+  const [activeAnimation, setActiveAnimation] =
+    useState<BodyAnim>("mixamo.com");
+  const [showControls, setShowControls] = useState(false);
   // Waypoint capture radius: 1 meter expressed in pixels using current ppm
   const waypointRadiusPx = 1.0 * ppm; // 1m zone
   const [debug, setDebug] = useState(false);
@@ -272,7 +274,7 @@ export default function ARTab() {
 
   const headingForMap = useYawOnly
     ? normalizeDeg(yawUsed - (deviceYaw0 ?? yawUsed))
-    : effectiveHeading;
+    : normalizeDeg(effectiveHeading);
 
   // Recompute user map position from camera movement
   useEffect(() => {
@@ -283,7 +285,9 @@ export default function ARTab() {
     const vx = dx;
     const vy = -dz;
     const yawRef = transUseCurrentYaw ? yawUsed : deviceYaw0 ?? yawUsed;
-    const theta = ((headingBase - yawRef) * Math.PI) / 180;
+    // Follow SLAM heading relative to device yaw (original rotation)
+    const thetaSign = Platform.OS === "android" ? -1 : 1;
+    const theta = thetaSign * ((headingBase - yawRef) * Math.PI) / 180;
     const rx = Math.cos(theta) * vx - Math.sin(theta) * vy;
     const ry = Math.sin(theta) * vx + Math.cos(theta) * vy; // up-positive
     const px = rx * ppm;
@@ -381,7 +385,6 @@ export default function ARTab() {
           setPolyline(data.polyline);
         }
         setRouteIdx(0);
-        setArrived(false);
         setListRouteMessage(
           `Routing ${data?.ordered_ids?.length ?? ids.length} item(s).`
         );
@@ -405,7 +408,6 @@ export default function ARTab() {
   useEffect(() => {
     if (!route) return;
     setRouteIdx(0);
-    setArrived(false);
   }, [route]);
 
   // Advance waypoint when user enters the zone around current waypoint
@@ -432,10 +434,8 @@ export default function ARTab() {
       }
 
       if (idx >= route.length) {
-        setArrived(true);
         return route.length - 1;
       } else if (advanced) {
-        setArrived(false);
         return idx;
       }
       return prevIdx;
@@ -455,7 +455,8 @@ export default function ARTab() {
     if (!displayRoute || displayRoute.length < 2 || !slamStart || !camStart)
       return [];
     const yawRef = transUseCurrentYaw ? yawUsed : deviceYaw0 ?? yawUsed;
-    const theta = ((headingBase - yawRef) * Math.PI) / 180;
+    const thetaSign = Platform.OS === "android" ? -1 : 1;
+    const theta = thetaSign * ((headingBase - yawRef) * Math.PI) / 180;
     const sinT = Math.sin(theta);
     const cosT = Math.cos(theta);
     // Place line near the world floor so it's not floating with camera height
@@ -531,283 +532,311 @@ export default function ARTab() {
             </View>
           )}
 
-          {/* Animation picker + Debug toggle */}
-          {animClips.length > 0 && (
-            <View
-              style={{
-                position: "absolute",
-                left: 8,
-                top: 8,
-                flexDirection: "row",
-                gap: 6,
-                zIndex: 1000,
-                elevation: 1000,
-              }}
-            >
-              {animClips.map((clip) => {
-                const isSel = activeAnimation === clip;
-                return (
-                  <Pressable
-                    key={clip}
-                    onPress={() => setActiveAnimation(clip)}
-                    style={{
-                      backgroundColor: isSel ? "#1e90ff" : "#00000088",
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: isSel ? "#63b3ff" : "#333",
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 12 }}>
-                      Anim {clip}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-          {/* Debug toggle */}
+          {/* Controls dropdown */}
           <View
             style={{
               position: "absolute",
               right: 8,
               top: 8,
-              gap: 6,
               zIndex: 1000,
               elevation: 1000,
+              alignItems: "flex-end",
             }}
           >
             <Pressable
-              onPress={() => setDebug((v) => !v)}
+              onPress={() => setShowControls((v) => !v)}
               style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-                marginBottom: 6,
+                backgroundColor: "#111827dd",
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "#1f2937",
               }}
             >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                {debug ? "Debug: ON" : "Debug: OFF"}
+              <Text style={{ color: "#fff", fontWeight: "600" }}>
+                {showControls ? "Hide Controls" : "Show Controls"}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={() => setUseYawOnly((v) => !v)}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                {useYawOnly ? "Heading Mode: YAW" : "Heading Mode: SLAM+YAW"}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() =>
-                setAlignment((a) =>
-                  a === "GravityAndHeading"
-                    ? "Camera"
-                    : a === "Camera"
-                    ? "Gravity"
-                    : "GravityAndHeading"
-                )
-              }
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                Align: {alignment}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setCamStart(camNow);
-                setDeviceYaw0(deviceYaw);
-              }}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                Reset Cam Anchor
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                // set base heading to current effective heading, zero future delta
-                // after this, effectiveHeading remains visually same but base value updates
-                const eff = effectiveHeading;
-                setHeadingBase(eff);
-                setDeviceYaw0(deviceYaw);
-              }}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>
-                Set Base = Now
-              </Text>
-            </Pressable>
-            {debug && (
+            {showControls && (
               <View
                 style={{
-                  backgroundColor: "#000000CC",
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                  zIndex: 1001,
-                  elevation: 1001,
+                  marginTop: 8,
+                  backgroundColor: "#0b1222ee",
+                  padding: 10,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "#1f2937",
+                  gap: 8,
+                  minWidth: 200,
                 }}
               >
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  yaw0:{deviceYaw0 === null ? "-" : deviceYaw0.toFixed(1)} yaw:
-                  {yawUsed.toFixed(1)}
-                </Text>
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  headBase:{headingBase.toFixed(1)} eff:
-                  {effectiveHeading.toFixed(1)} map:{headingForMap.toFixed(1)}
-                </Text>
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  cam0:
-                  {camStart
-                    ? `${camStart[0].toFixed(2)},${camStart[1].toFixed(
-                        2
-                      )},${camStart[2].toFixed(2)}`
-                    : "-"}
-                </Text>
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  cam :
-                  {camNow
-                    ? `${camNow[0].toFixed(2)},${camNow[1].toFixed(
-                        2
-                      )},${camNow[2].toFixed(2)}`
-                    : "-"}
-                </Text>
-                {camStart && camNow && (
-                  <Text style={{ color: "#fff", fontSize: 11 }}>
-                    d:(x:{(camNow[0] - camStart[0]).toFixed(2)} z:
-                    {(camNow[2] - camStart[2]).toFixed(2)}) ppm:{ppm}
-                  </Text>
+                {animClips.length > 0 && (
+                  <View style={{ gap: 6 }}>
+                    <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+                      Animations
+                    </Text>
+                    {animClips.map((clip) => {
+                      const isSel = activeAnimation === clip;
+                      return (
+                        <Pressable
+                          key={clip}
+                          onPress={() => setActiveAnimation(clip)}
+                          style={{
+                            backgroundColor: isSel ? "#1e90ff" : "#00000088",
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: isSel ? "#63b3ff" : "#333",
+                          }}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 12 }}>
+                            {clip}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 )}
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  user:
-                  {user ? `${user.x.toFixed(1)},${user.y.toFixed(1)}` : "-"}
-                </Text>
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  route3D pts:{routeWorld?.length ?? 0} 2D:{route?.length ?? 0}
-                </Text>
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  routeY:{routeYOffset.toFixed(3)}m
-                </Text>
+                <Pressable
+                  onPress={() => setDebug((v) => !v)}
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    {debug ? "Debug: ON" : "Debug: OFF"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setUseYawOnly((v) => !v)}
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    {useYawOnly ? "Heading Mode: YAW" : "Heading Mode: SLAM+YAW"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    setAlignment((a) =>
+                      a === "GravityAndHeading"
+                        ? "Camera"
+                        : a === "Camera"
+                        ? "Gravity"
+                        : "GravityAndHeading"
+                    )
+                  }
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    Align: {alignment}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setCamStart(camNow);
+                    setDeviceYaw0(deviceYaw);
+                  }}
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    Reset Cam Anchor
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const eff = effectiveHeading;
+                    setHeadingBase(eff);
+                    setDeviceYaw0(deviceYaw);
+                  }}
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    Set Base = Now
+                  </Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  <Pressable
+                    onPress={() => setPpm((p) => Math.max(10, p - 20))}
+                    style={{
+                      backgroundColor: "#00000088",
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>PPM -</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setPpm((p) => p + 20)}
+                    style={{
+                      backgroundColor: "#00000088",
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>PPM +</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setTransUseCurrentYaw((v) => !v)}
+                    style={{
+                      backgroundColor: "#00000088",
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>
+                      Trans Rot: {transUseCurrentYaw ? "CURRENT" : "BASE"}
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  <Pressable
+                    onPress={() => setRouteYOffset((y) => y - 0.02)}
+                    style={{
+                      backgroundColor: "#00000088",
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>
+                      Route Y-
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setRouteYOffset((y) => y + 0.02)}
+                    style={{
+                      backgroundColor: "#00000088",
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 12 }}>
+                      Route Y+
+                    </Text>
+                  </Pressable>
+                </View>
+                <Pressable
+                  onPress={async () => {
+                    try {
+                      const r = await fetch(`${API_BASE}/api/slam`);
+                      const j = await r.json();
+                      if (j && j.x != null && j.y != null) {
+                        const p = { x: Number(j.x), y: Number(j.y) };
+                        setSlamStart(p);
+                        setUser(p);
+                        setHeadingBase(Number(j.heading_deg || 0));
+                        setCamStart(null);
+                        setDeviceYaw0(null);
+                      }
+                    } catch {}
+                  }}
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>
+                    Recenter SLAM
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => clear()}
+                  style={{
+                    backgroundColor: "#00000088",
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 12 }}>Clear Route</Text>
+                </Pressable>
+                {debug && (
+                  <View
+                    style={{
+                      backgroundColor: "#000000CC",
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      zIndex: 1001,
+                      elevation: 1001,
+                      gap: 2,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      yaw0:{deviceYaw0 === null ? "-" : deviceYaw0.toFixed(1)} yaw:
+                      {yawUsed.toFixed(1)}
+                    </Text>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      headBase:{headingBase.toFixed(1)} eff:
+                      {effectiveHeading.toFixed(1)} map:{headingForMap.toFixed(1)}
+                    </Text>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      cam0:
+                      {camStart
+                        ? `${camStart[0].toFixed(2)},${camStart[1].toFixed(
+                            2
+                          )},${camStart[2].toFixed(2)}`
+                        : "-"}
+                    </Text>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      cam :
+                      {camNow
+                        ? `${camNow[0].toFixed(2)},${camNow[1].toFixed(
+                            2
+                          )},${camNow[2].toFixed(2)}`
+                        : "-"}
+                    </Text>
+                    {camStart && camNow && (
+                      <Text style={{ color: "#fff", fontSize: 11 }}>
+                        d:(x:{(camNow[0] - camStart[0]).toFixed(2)} z:
+                        {(camNow[2] - camStart[2]).toFixed(2)}) ppm:{ppm}
+                      </Text>
+                    )}
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      user:
+                      {user ? `${user.x.toFixed(1)},${user.y.toFixed(1)}` : "-"}
+                    </Text>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      route3D pts:{routeWorld?.length ?? 0} 2D:{route?.length ?? 0}
+                    </Text>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>
+                      routeY:{routeYOffset.toFixed(3)}m
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
-            <View style={{ flexDirection: "row", gap: 6 }}>
-              <Pressable
-                onPress={() => setPpm((p) => Math.max(10, p - 20))}
-                style={{
-                  backgroundColor: "#00000088",
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 12 }}>PPM -</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setPpm((p) => p + 20)}
-                style={{
-                  backgroundColor: "#00000088",
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 12 }}>PPM +</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setTransUseCurrentYaw((v) => !v)}
-                style={{
-                  backgroundColor: "#00000088",
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 12 }}>
-                  Trans Rot: {transUseCurrentYaw ? "CURRENT" : "BASE"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setRouteYOffset((y) => y - 0.02)}
-                style={{
-                  backgroundColor: "#00000088",
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 12 }}>Route Y-</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setRouteYOffset((y) => y + 0.02)}
-                style={{
-                  backgroundColor: "#00000088",
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 12 }}>Route Y+</Text>
-              </Pressable>
-            </View>
-            <Pressable
-              onPress={async () => {
-                try {
-                  const r = await fetch(`${API_BASE}/api/slam`);
-                  const j = await r.json();
-                  if (j && j.x != null && j.y != null) {
-                    const p = { x: Number(j.x), y: Number(j.y) };
-                    setSlamStart(p);
-                    setUser(p);
-                    setHeadingBase(Number(j.heading_deg || 0));
-                    setCamStart(null);
-                    setDeviceYaw0(null);
-                  }
-                } catch {}
-              }}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>Recenter SLAM</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => clear()}
-              style={{
-                backgroundColor: "#00000088",
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 12 }}>Clear Route</Text>
-            </Pressable>
           </View>
           {/* Overlay search */}
           <View style={{ position: "absolute", left: 8, right: 8, top: 8 }}>
@@ -886,16 +915,16 @@ export default function ARTab() {
             width={width}
             height={half}
             mapWidthPx={mapWidthPx || 675}
-            mapHeightPx={mapHeightPx || 878}
-            backgroundSource={imageSource}
-            polyline={displayRoute}
-            user={user}
-            headingDeg={headingForMap}
-            headingInvert={true}
-            roundMask
-            rotateMap={rotateMap}
-            centerOnUser={false}
-            debug={debug}
+          mapHeightPx={mapHeightPx || 878}
+          backgroundSource={imageSource}
+          polyline={displayRoute}
+          user={user}
+          headingDeg={headingForMap}
+          headingInvert={false}
+          roundMask
+          rotateMap={rotateMap}
+          centerOnUser={rotateMap}
+          debug={debug}
             categories={categories?.map((c) => ({
               name: c.name,
               polygon: c.polygon,

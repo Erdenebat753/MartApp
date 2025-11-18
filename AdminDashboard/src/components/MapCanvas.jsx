@@ -310,7 +310,8 @@ export default function MapCanvas({
             {(() => {
               const L = 60;
               const deg = Number(slamStart.heading_deg || 0);
-              const rad = (deg * Math.PI) / 180;
+              // 0° is "up", but canvas angle 0 points right; subtract 90°
+              const rad = ((deg - 90) * Math.PI) / 180;
               const sx = Number(slamStart.x) * effScale;
               const sy = Number(slamStart.y) * effScale;
               const ex = (Number(slamStart.x) + L * Math.cos(rad)) * effScale;
@@ -334,7 +335,8 @@ export default function MapCanvas({
           >
             {(() => {
               const L = 60;
-              const rad = ((headingArrow.deg || 0) * Math.PI) / 180;
+              // 0° is "up", but canvas angle 0 points right; subtract 90°
+              const rad = (((headingArrow.deg || 0) - 90) * Math.PI) / 180;
               const sx = headingArrow.x * effScale;
               const sy = headingArrow.y * effScale;
               const ex = (headingArrow.x + L * Math.cos(rad)) * effScale;
