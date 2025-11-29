@@ -31,3 +31,9 @@
 
 ## Security & Config
 - Copy env samples and set `OPENAI_API_KEY`, and `CORS_ORIGINS` in backend `.env`. Frontends: set API base URLs in `AdminDashboard/src/config.js` and `Client/constants/api.ts`.
+
+## Current AR Tab Status
+- Client `app/(tabs)/ar.tsx` now computes every route waypoint’s world coordinates via `mapPointToWorld` and passes them to `ARTestScreen` as `routePointsWorld`.
+- `ARTestScreen` (Viro scene) no longer remounts per update; it keeps a single `Viro3DObject` and updates its position/rotation through `setNativeProps`, while markers are drawn for all waypoints.
+- SLAM initialization is guarded so tab switches do not reset the pose; focus effect only reloads lists instead of clearing route state.
+- Remaining issue: AR model still lags behind 2D route because Viro scene ignores prop updates in some cases; we are exploring navigator-driven refreshes or alternative cues (2D guidance) as next steps.

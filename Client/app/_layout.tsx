@@ -16,16 +16,21 @@ export default function RootLayout() {
           const msg = e?.stack || (e?.message ? `${e.message}` : String(e));
           console.error("[GLOBAL ERROR]", isFatal ? "FATAL" : "NONFATAL", msg);
         } catch {}
-        try { prev && prev(e, isFatal); } catch {}
+        try {
+          prev && prev(e, isFatal);
+        } catch {}
       });
     } catch {}
+    // Guard deprecated BackHandler API on web
     try {
-      if (!BackHandler.removeEventListener) {
+      if (typeof (BackHandler as any).removeEventListener !== "function") {
         (BackHandler as any).removeEventListener = () => {};
       }
     } catch {}
     // Do not mute logs; ensure warnings show up
-    try { LogBox.ignoreAllLogs(false); } catch {}
+    try {
+      LogBox.ignoreAllLogs(false);
+    } catch {}
   }, []);
   return (
     <NativeBaseProvider>

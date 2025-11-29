@@ -43,14 +43,19 @@ export function useLists() {
     return created;
   }, []);
 
-  const update = useCallback(async (id: number, data: Partial<ItemList>) => {
-    const original = lists.find(l => l.id === id);
+  const update = useCallback(async (id: number, data: Partial<ItemList>, base?: ItemList) => {
+    const original = lists.find(l => l.id === id) ?? base;
+    if (!original) throw new Error(`List ${id} not found`);
     const payload = {
       name: data.name ?? original?.name ?? null,
       item_ids: data.item_ids ?? original?.item_ids ?? [],
     };
     const saved = await jsonFetch<ItemList>(`${API_BASE}/api/lists/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-    setLists(prev => prev.map(l => l.id === id ? saved : l));
+    setLists(prev => {
+      const exists = prev.some(l => l.id === id);
+      if (!exists) return [...prev, saved];
+      return prev.map(l => l.id === id ? saved : l);
+    });
     return saved;
   }, [lists]);
 
@@ -59,11 +64,11 @@ export function useLists() {
     setLists(prev => prev.filter(l => l.id !== id));
   }, []);
 
-  const appendItems = useCallback(async (id: number, ids: number[]) => {
-    const l = lists.find(x => x.id === id);
+  const appendItems = useCallback(async (id: number, ids: number[], fallback?: ItemList) => {
+    const l = lists.find(x => x.id === id) ?? fallback;
     if (!l) return null;
     const merged = Array.from(new Set([...(l.item_ids || []), ...ids.map(n => Number(n))])).filter(n => Number.isFinite(n));
-    return update(id, { item_ids: merged });
+    return update(id, { item_ids: merged }, l);
   }, [lists, update]);
 
   const removeItem = useCallback(async (id: number, itemId: number) => {
@@ -75,4 +80,3 @@ export function useLists() {
 
   return { lists, loading, error, reload, create, update, remove, appendItems, removeItem } as const;
 }
-

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { View, Image, Text, PanResponder } from "react-native";
 import Svg, {
   Polyline as SvgPolyline,
@@ -11,9 +17,10 @@ export type Point = { x: number; y: number };
 
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 3;
-const LONG_PRESS_MS = 550;
 const MOVE_CANCEL_PX = 12;
 const PAN_MARGIN = 60;
+const LABEL_FADE_IN_ZOOM_START = 1.1;
+const LABEL_FADE_IN_ZOOM_END = 1.5;
 
 const distanceBetweenTouches = (touches: readonly any[]) => {
   if (!touches || touches.length < 2) return 0;
@@ -31,12 +38,13 @@ type Props = {
   backgroundSource?: any; // 예: require('../assets/map.png') 등
   polyline?: Point[];
   user?: Point | null;
-  onLongPress?: (p: Point) => void;
   headingDeg?: number; // heading for rotate-map mode
   headingInvert?: boolean; // true이면 회전 방향을 반대로 함
   roundMask?: boolean; // 둥гөр хүрээ
   rotateMap?: boolean; // сум биш map эргэнэ
   centerOnUser?: boolean; // хэрэглэгч төвд, зөвхөн map хөдөлнө
+  onViewportInteraction?: () => void;
+  centerOnUserToken?: number;
   debug?: boolean;
   categories?: { name: string; polygon: Point[]; color?: string | null }[];
 };
@@ -49,12 +57,13 @@ export default function Map2D({
   backgroundSource,
   polyline = [],
   user,
-  onLongPress,
   headingDeg = 0,
   headingInvert = false,
   roundMask = false,
   rotateMap = false,
   centerOnUser = false,
+  onViewportInteraction,
+  centerOnUserToken = 0,
   debug = false,
   categories = [],
 }: Props) {
@@ -67,6 +76,7 @@ export default function Map2D({
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const panOffsetRef = useRef(panOffset);
+  const skipClampRef = useRef(false);
   useEffect(() => {
     panOffsetRef.current = panOffset;
   }, [panOffset]);
@@ -75,14 +85,6 @@ export default function Map2D({
   const pinchBaseRef = useRef<{ dist: number; zoom: number } | null>(null);
   const pinchActiveRef = useRef(false);
 
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-  useEffect(() => () => cancelLongPress(), [cancelLongPress]);
 
   const clampZoom = useCallback(
     (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value)),
@@ -100,6 +102,10 @@ export default function Map2D({
   );
 
   useEffect(() => {
+    if (skipClampRef.current) {
+      skipClampRef.current = false;
+      return;
+    }
     setPanOffset((prev) => {
       const nx = clampPanValue("x", prev.x);
       const ny = clampPanValue("y", prev.y);
@@ -138,6 +144,8 @@ export default function Map2D({
     }),
     [panOffset.x, panOffset.y, centerShift.x, centerShift.y]
   );
+  const prevCenterOnUserRef = useRef(centerOnUser);
+  const prevCenterShiftRef = useRef(centerShift);
 
   const routePoints = useMemo(() => {
     if (!polyline || polyline.length < 2) return "";
@@ -157,7 +165,6 @@ export default function Map2D({
       offY,
       pan: panOffset,
       shift: effectiveShift,
-      shift: effectiveShift,
       user,
       headingDeg,
       polyLen: polyline?.length || 0,
@@ -165,17 +172,27 @@ export default function Map2D({
   }
 
   const rotationPivot = useMemo(() => {
-    if (rotateMap) {
-      // When rotating the map, spin around the viewport center (user is centered via centerOnUser)
-      return { x: width / 2, y: height / 2 };
-    }
     const baseX = baseUserScreen?.x ?? width / 2;
     const baseY = baseUserScreen?.y ?? height / 2;
+    if (rotateMap) {
+      // When rotating, anchor around the on-screen user position (after shifts/pan)
+      return {
+        x: baseX + effectiveShift.x,
+        y: baseY + effectiveShift.y,
+      };
+    }
     return {
       x: baseX + effectiveShift.x,
       y: baseY + effectiveShift.y,
     };
-  }, [rotateMap, baseUserScreen, effectiveShift.x, effectiveShift.y, width, height]);
+  }, [
+    rotateMap,
+    baseUserScreen,
+    effectiveShift.x,
+    effectiveShift.y,
+    width,
+    height,
+  ]);
 
   const screenToMap = useCallback(
     (screenX: number, screenY: number) => {
@@ -218,32 +235,11 @@ export default function Map2D({
     ]
   );
 
-  const handlePressFromCoords = useCallback(
-    (screenX: number, screenY: number) => {
-      if (!onLongPress) return;
-      onLongPress(screenToMap(screenX, screenY));
-    },
-    [onLongPress, screenToMap]
-  );
-
-  const scheduleLongPress = useCallback(
-    (screenX: number, screenY: number) => {
-      if (!onLongPress) return;
-      cancelLongPress();
-      longPressTimerRef.current = setTimeout(() => {
-        longPressTimerRef.current = null;
-        handlePressFromCoords(screenX, screenY);
-      }, LONG_PRESS_MS);
-    },
-    [cancelLongPress, handlePressFromCoords, onLongPress]
-  );
-
   const finishGesture = useCallback(() => {
-    cancelLongPress();
     pinchBaseRef.current = null;
     pinchActiveRef.current = false;
     panStartRef.current = panOffsetRef.current;
-  }, [cancelLongPress]);
+  }, []);
 
   const panResponder = useMemo(
     () =>
@@ -254,16 +250,13 @@ export default function Map2D({
           pinchActiveRef.current = false;
           pinchBaseRef.current = null;
           panStartRef.current = panOffsetRef.current;
-          scheduleLongPress(
-            evt.nativeEvent.locationX,
-            evt.nativeEvent.locationY
-          );
+          onViewportInteraction?.();
         },
         onPanResponderMove: (evt, gestureState) => {
           const touches = evt.nativeEvent.touches || [];
           if (touches.length >= 2) {
             pinchActiveRef.current = true;
-            cancelLongPress();
+            onViewportInteraction?.();
             const dist = distanceBetweenTouches(touches);
             if (dist <= 0) return;
             if (!pinchBaseRef.current) {
@@ -272,45 +265,27 @@ export default function Map2D({
               const factor = dist / pinchBaseRef.current.dist;
               const nextZoom = clampZoom(pinchBaseRef.current.zoom * factor);
               setZoom(nextZoom);
+              onViewportInteraction?.();
             }
             return;
           }
 
           if (pinchActiveRef.current) return;
 
-          if (
-            Math.abs(gestureState.dx) > MOVE_CANCEL_PX ||
-            Math.abs(gestureState.dy) > MOVE_CANCEL_PX
-          ) {
-            cancelLongPress();
-          }
-
           const next = {
             x: clampPanValue("x", panStartRef.current.x + gestureState.dx),
             y: clampPanValue("y", panStartRef.current.y + gestureState.dy),
           };
           setPanOffset(next);
+          onViewportInteraction?.();
         },
         onPanResponderRelease: (_, gestureState) => {
-          if (
-            !pinchActiveRef.current &&
-            Math.abs(gestureState.dx) < MOVE_CANCEL_PX &&
-            Math.abs(gestureState.dy) < MOVE_CANCEL_PX
-          ) {
-            cancelLongPress();
-          }
           finishGesture();
         },
         onPanResponderTerminate: finishGesture,
         onPanResponderTerminationRequest: () => false,
       }),
-    [
-      cancelLongPress,
-      clampPanValue,
-      clampZoom,
-      finishGesture,
-      scheduleLongPress,
-    ]
+    [clampPanValue, clampZoom, finishGesture, onViewportInteraction]
   );
 
   // Compute category label positions (simple polygon centroid)
@@ -346,14 +321,29 @@ export default function Map2D({
       .filter(Boolean) as { name: string; x: number; y: number }[];
   }, [categories, offX, offY, scale]);
 
+  const catLabelOpacity = useMemo(() => {
+    if (LABEL_FADE_IN_ZOOM_END <= LABEL_FADE_IN_ZOOM_START) {
+      return zoom >= LABEL_FADE_IN_ZOOM_END ? 1 : 0;
+    }
+    const range = LABEL_FADE_IN_ZOOM_END - LABEL_FADE_IN_ZOOM_START;
+    const normalized = (zoom - LABEL_FADE_IN_ZOOM_START) / range;
+    return Math.max(0, Math.min(1, normalized));
+  }, [zoom]);
+  const showCategoryLabels = catLabelOpacity > 0.01;
+
   // Build transform so that only the map rotates/translates; user overlay stays outside.
-  const userSX = baseUserScreen?.x ?? (width / 2);
-  const userSY = baseUserScreen?.y ?? (height / 2);
   const angleDeg = headingInvert ? -headingDeg : headingDeg;
   const transforms = useMemo(() => {
-    const t: { [key: string]: string | number }[] = [];
+    const t: (
+      | { translateX: number }
+      | { translateY: number }
+      | { rotate: string }
+    )[] = [];
     if (effectiveShift.x !== 0 || effectiveShift.y !== 0) {
-      t.push({ translateX: effectiveShift.x }, { translateY: effectiveShift.y });
+      t.push(
+        { translateX: effectiveShift.x },
+        { translateY: effectiveShift.y }
+      );
     }
     if (rotateMap) {
       const pivotX = rotationPivot.x;
@@ -361,7 +351,7 @@ export default function Map2D({
       t.push(
         { translateX: -pivotX },
         { translateY: -pivotY },
-        { rotate: `${-angleDeg}deg` as const },
+        { rotate: `${-angleDeg}deg` },
         { translateX: pivotX },
         { translateY: pivotY }
       );
@@ -376,6 +366,24 @@ export default function Map2D({
     effectiveShift.y,
   ]);
 
+  
+  useEffect(() => {
+    const wasCentered = prevCenterOnUserRef.current;
+    if (!centerOnUser && wasCentered) {
+      const prevShift = prevCenterShiftRef.current;
+      if (prevShift) {
+        skipClampRef.current = true;
+        setPanOffset((prev) => {
+          const next = { x: prev.x + prevShift.x, y: prev.y + prevShift.y };
+          panOffsetRef.current = next;
+          return next;
+        });
+      }
+    }
+    prevCenterOnUserRef.current = centerOnUser;
+    prevCenterShiftRef.current = centerShift;
+  });
+
   return (
     <View
       {...panResponder.panHandlers}
@@ -384,7 +392,7 @@ export default function Map2D({
         height,
         backgroundColor: "#111",
         overflow: "hidden",
-        borderRadius: roundMask ? Math.min(width, height) / 2 : 0,
+        borderRadius: 0,
         position: "relative",
       }}
     >
@@ -449,18 +457,20 @@ export default function Map2D({
             />
           )}
           {/* Category labels */}
-          {catLabels.map((c, i) => (
-            <SvgText
-              key={i}
-              x={c.x}
-              y={c.y}
-              fill="#e5e7eb"
-              fontSize={12}
-              textAnchor="middle"
-            >
-              {c.name}
-            </SvgText>
-          ))}
+          {showCategoryLabels &&
+            catLabels.map((c, i) => (
+              <SvgText
+                key={i}
+                x={c.x}
+                y={c.y}
+                fill="#e5e7eb"
+                fontSize={12}
+                textAnchor="middle"
+                opacity={catLabelOpacity}
+              >
+                {c.name}
+              </SvgText>
+            ))}
         </Svg>
       </View>
 
@@ -480,7 +490,7 @@ export default function Map2D({
             const ang =
               ((rotateMap ? 0 : headingInvert ? -hd : hd) * Math.PI) / 180;
             // Triple the previous size for higher visibility
-            const s = 24; // size in px (smaller arrow)
+            const s = -24; // size in px (smaller arrow)
             const b = s * 0.6;
             const w = s * 0.8;
             const dx = Math.sin(ang);
@@ -546,7 +556,9 @@ export default function Map2D({
         </Text>
         {debug && (
           <Text style={{ color: "#ccc", fontSize: 10, marginTop: 2 }}>
-            s:{scale.toFixed(3)} z:{zoom.toFixed(2)} pan:{panOffset.x.toFixed(0)},{panOffset.y.toFixed(0)} poly:{polyline?.length || 0}
+            s:{scale.toFixed(3)} z:{zoom.toFixed(2)} pan:
+            {panOffset.x.toFixed(0)},{panOffset.y.toFixed(0)} poly:
+            {polyline?.length || 0}
           </Text>
         )}
       </View>

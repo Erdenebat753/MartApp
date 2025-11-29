@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { log } from "../src/logger";
 import { API_BASE } from "../constants/api";
 
@@ -7,7 +7,7 @@ export function useRouteCompute() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const compute = async (start: {x:number;y:number}, end: {x:number;y:number}, algorithm: 'astar'|'dijkstra' = 'astar') => {
+  const compute = useCallback(async (start: {x:number;y:number}, end: {x:number;y:number}, algorithm: 'astar'|'dijkstra' = 'astar') => {
     try {
       setLoading(true);
       log.debug('[useRoute] compute start', { start, end });
@@ -28,10 +28,10 @@ export function useRouteCompute() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const clear = () => setRoute([]);
-  const setPolyline = (polyline: {x:number;y:number}[]) => setRoute(polyline);
+  const clear = useCallback(() => setRoute([]), []);
+  const setPolyline = useCallback((polyline: {x:number;y:number}[]) => setRoute(polyline), []);
 
   return { route, loading, error, compute, clear, setPolyline };
 }
